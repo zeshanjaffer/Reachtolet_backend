@@ -1,0 +1,19 @@
+asgiref==3.9.1
+Django==5.2.4
+sqlparse==0.5.3
+tzdata==2025.2
+
+# PostgreSQL Database
+psycopg2-binary==2.9.9
+python-decouple==3.8
+
+# API & Filtering
+django-filter==23.5
+
+# Caching (using Django's built-in cache)
+
+# Rate Limiting
+django-ratelimit==4.1.0
+
+# Push Notifications
+firebase-admin==6.4.0

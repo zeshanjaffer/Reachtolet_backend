@@ -1,0 +1,282 @@
+{% extends "admin/change_form.html" %}
+{% load i18n admin_urls static admin_modify %}
+
+{% block extrastyle %}
+{{ block.super }}
+<style>
+    .form-row {
+        padding: 16px 0;
+        border-bottom: 1px solid var(--border-color);
+        display: flex;
+        align-items: flex-start;
+        gap: 20px;
+    }
+
+    .form-row:last-child {
+        border-bottom: none;
+    }
+
+    .form-row label {
+        font-weight: 600;
+        color: var(--text-color);
+        min-width: 200px;
+        display: inline-block;
+        margin-top: 8px;
+    }
+
+    .form-row input, .form-row select, .form-row textarea {
+        border: 1px solid var(--border-color);
+        padding: 10px 14px;
+        font-size: 14px;
+        flex: 1;
+        max-width: 400px;
+    }
+
+    .form-row input:focus, .form-row select:focus, .form-row textarea:focus {
+        outline: none;
+        border-color: var(--primary-color);
+    }
+
+    .form-row textarea {
+        min-height: 100px;
+        resize: vertical;
+    }
+
+    .form-row .help {
+        color: var(--text-muted);
+        font-size: 0.875rem;
+        margin-top: 4px;
+        margin-left: 220px;
+    }
+
+    .form-row .errors {
+        color: var(--danger-color);
+        font-size: 0.875rem;
+        margin-top: 4px;
+        margin-left: 220px;
+    }
+
+    .form-row .errors ul {
+        margin: 0;
+        padding-left: 20px;
+    }
+
+    .submit-row {
+        background: var(--light-color);
+        padding: 20px;
+        margin-top: 30px;
+        border: 1px solid var(--border-color);
+        display: flex;
+        gap: 12px;
+        align-items: center;
+        justify-content: flex-end;
+    }
+
+    .submit-row input {
+        background: var(--primary-color);
+        color: white;
+        border: 1px solid var(--primary-color);
+        padding: 12px 24px;
+        font-weight: 500;
+        cursor: pointer;
+        text-decoration: none;
+        display: inline-block;
+    }
+
+    .submit-row input:hover {
+        background: var(--secondary-color);
+        border-color: var(--secondary-color);
+    }
+
+    .submit-row input.default {
+        background: var(--success-color);
+        border-color: var(--success-color);
+    }
+
+    .submit-row input.default:hover {
+        background: var(--secondary-color);
+        border-color: var(--secondary-color);
+    }
+
+    .submit-row .deletelink {
+        background: var(--danger-color);
+        color: white;
+        border: 1px solid var(--danger-color);
+        padding: 12px 24px;
+        font-weight: 500;
+        cursor: pointer;
+        text-decoration: none;
+        display: inline-block;
+    }
+
+    .submit-row .deletelink:hover {
+        background: var(--secondary-color);
+        border-color: var(--secondary-color);
+        color: white;
+    }
+
+    .fieldset {
+        background: white;
+        padding: 24px;
+        margin-bottom: 20px;
+        border: 1px solid var(--border-color);
+    }
+
+    .fieldset h2 {
+        margin: 0 0 20px 0;
+        color: var(--text-color);
+        font-size: 1.25rem;
+        font-weight: 600;
+        border-bottom: 1px solid var(--border-color);
+        padding-bottom: 12px;
+    }
+
+    .fieldset.collapse {
+        border: 1px solid var(--border-color);
+    }
+
+    .fieldset.collapse h2 {
+        cursor: pointer;
+        position: relative;
+        padding-right: 30px;
+    }
+
+    .fieldset.collapse h2::after {
+        content: '▼';
+        position: absolute;
+        right: 0;
+        top: 50%;
+        transform: translateY(-50%);
+    }
+
+    .fieldset.collapse.closed h2::after {
+        transform: translateY(-50%) rotate(-90deg);
+    }
+
+    .fieldset.collapse.closed .form-row {
+        display: none;
+    }
+
+    .inline-group {
+        background: white;
+        padding: 20px;
+        margin-bottom: 20px;
+        border: 1px solid var(--border-color);
+    }
+
+    .inline-related h3 {
+        margin: 0 0 16px 0;
+        color: var(--text-color);
+        font-size: 1.1rem;
+        font-weight: 600;
+        border-bottom: 1px solid var(--border-color);
+        padding-bottom: 8px;
+    }
+
+    .inline-related .add-row a {
+        background: var(--success-color);
+        color: white;
+        padding: 8px 16px;
+        text-decoration: none;
+        font-weight: 500;
+        display: inline-block;
+        margin-bottom: 16px;
+        border: 1px solid var(--success-color);
+    }
+
+    .inline-related .add-row a:hover {
+        background: var(--secondary-color);
+        border-color: var(--secondary-color);
+        color: white;
+    }
+
+    .inline-related .delete a {
+        background: var(--danger-color);
+        color: white;
+        padding: 4px 8px;
+        text-decoration: none;
+        font-size: 0.75rem;
+        font-weight: 500;
+        border: 1px solid var(--danger-color);
+    }
+
+    .inline-related .delete a:hover {
+        background: var(--secondary-color);
+        border-color: var(--secondary-color);
+        color: white;
+    }
+
+    .image-preview {
+        margin-top: 8px;
+    }
+
+    .image-preview img {
+        border: 1px solid var(--border-color);
+        max-width: 200px;
+        max-height: 200px;
+    }
+
+    .status-badge {
+        display: inline-block;
+        padding: 6px 12px;
+        font-size: 12px;
+        font-weight: 600;
+        text-transform: uppercase;
+        letter-spacing: 0.5px;
+        margin-top: 8px;
+    }
+
+    .status-available {
+        background: var(--light-color);
+        color: var(--text-color);
+        border: 1px solid var(--border-color);
+    }
+
+    .status-unavailable {
+        background: var(--light-color);
+        color: var(--text-color);
+        border: 1px solid var(--border-color);
+    }
+
+    .readonly {
+        background: var(--light-color);
+        color: var(--text-muted);
+        border: 1px solid var(--border-color);
+        padding: 10px 14px;
+        font-size: 14px;
+        flex: 1;
+        max-width: 400px;
+    }
+
+    @media (max-width: 768px) {
+        .form-row {
+            flex-direction: column;
+            gap: 8px;
+        }
+
+        .form-row label {
+            min-width: auto;
+            margin-top: 0;
+        }
+
+        .form-row input, .form-row select, .form-row textarea {
+            max-width: 100%;
+        }
+
+        .form-row .help,
+        .form-row .errors {
+            margin-left: 0;
+        }
+
+        .submit-row {
+            flex-direction: column;
+            align-items: stretch;
+        }
+
+        .submit-row input,
+        .submit-row .deletelink {
+            text-align: center;
+        }
+    }
+</style>
+{% endblock %}

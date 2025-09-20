@@ -1,0 +1,385 @@
+{% extends "admin/base_site.html" %}
+{% load static %}
+
+{% block title %}Dashboard | {{ site_title|default:_('ReachToLet Admin') }}{% endblock %}
+
+{% block extrastyle %}
+{{ block.super }}
+<style>
+    .dashboard-container {
+        max-width: 1200px;
+        margin: 0 auto;
+        padding: 20px;
+    }
+
+    .stats-grid {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+        gap: 20px;
+        margin-bottom: 30px;
+    }
+
+    .stat-card {
+        background: white;
+        border-radius: 12px;
+        padding: 24px;
+        box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1);
+        border-left: 4px solid var(--primary-color);
+        transition: transform 0.2s ease, box-shadow 0.2s ease;
+    }
+
+    .stat-card:hover {
+        transform: translateY(-2px);
+        box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.1);
+    }
+
+    .stat-card.billboards {
+        border-left-color: var(--primary-color);
+    }
+
+    .stat-card.users {
+        border-left-color: var(--success-color);
+    }
+
+    .stat-card.wishlists {
+        border-left-color: var(--warning-color);
+    }
+
+    .stat-card.views {
+        border-left-color: var(--info-color);
+    }
+
+    .stat-number {
+        font-size: 2.5rem;
+        font-weight: 700;
+        color: var(--dark-color);
+        margin-bottom: 8px;
+    }
+
+    .stat-label {
+        font-size: 0.875rem;
+        color: var(--text-muted);
+        text-transform: uppercase;
+        letter-spacing: 0.5px;
+        font-weight: 600;
+    }
+
+    .content-grid {
+        display: grid;
+        grid-template-columns: 2fr 1fr;
+        gap: 30px;
+        margin-bottom: 30px;
+    }
+
+    .content-card {
+        background: white;
+        border-radius: 12px;
+        padding: 24px;
+        box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1);
+    }
+
+    .content-card h2 {
+        margin: 0 0 20px 0;
+        color: var(--dark-color);
+        font-size: 1.25rem;
+        font-weight: 600;
+        border-bottom: 2px solid var(--border-color);
+        padding-bottom: 12px;
+    }
+
+    .activity-list {
+        list-style: none;
+        padding: 0;
+        margin: 0;
+    }
+
+    .activity-item {
+        padding: 16px 0;
+        border-bottom: 1px solid var(--border-color);
+        display: flex;
+        align-items: center;
+        gap: 12px;
+    }
+
+    .activity-item:last-child {
+        border-bottom: none;
+    }
+
+    .activity-icon {
+        width: 40px;
+        height: 40px;
+        border-radius: 50%;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        font-size: 16px;
+        color: white;
+    }
+
+    .activity-icon.billboard {
+        background: var(--primary-color);
+    }
+
+    .activity-icon.user {
+        background: var(--success-color);
+    }
+
+    .activity-content {
+        flex: 1;
+    }
+
+    .activity-title {
+        font-weight: 600;
+        color: var(--dark-color);
+        margin-bottom: 4px;
+    }
+
+    .activity-meta {
+        font-size: 0.875rem;
+        color: var(--text-muted);
+    }
+
+    .popular-billboard {
+        display: flex;
+        align-items: center;
+        gap: 12px;
+        padding: 12px 0;
+        border-bottom: 1px solid var(--border-color);
+    }
+
+    .popular-billboard:last-child {
+        border-bottom: none;
+    }
+
+    .popular-rank {
+        width: 24px;
+        height: 24px;
+        border-radius: 50%;
+        background: var(--primary-color);
+        color: white;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        font-size: 0.75rem;
+        font-weight: 600;
+    }
+
+    .popular-rank.top {
+        background: #fbbf24;
+    }
+
+    .popular-content {
+        flex: 1;
+    }
+
+    .popular-title {
+        font-weight: 600;
+        color: var(--dark-color);
+        margin-bottom: 4px;
+    }
+
+    .popular-views {
+        font-size: 0.875rem;
+        color: var(--text-muted);
+    }
+
+    .city-stats {
+        margin-top: 20px;
+    }
+
+    .city-item {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        padding: 8px 0;
+        border-bottom: 1px solid var(--border-color);
+    }
+
+    .city-item:last-child {
+        border-bottom: none;
+    }
+
+    .city-name {
+        font-weight: 500;
+        color: var(--dark-color);
+    }
+
+    .city-count {
+        background: var(--light-color);
+        color: var(--primary-color);
+        padding: 4px 8px;
+        border-radius: 12px;
+        font-size: 0.75rem;
+        font-weight: 600;
+    }
+
+    .quick-actions {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+        gap: 16px;
+        margin-top: 30px;
+    }
+
+    .action-button {
+        background: var(--primary-color);
+        color: white;
+        padding: 16px 24px;
+        border-radius: 8px;
+        text-decoration: none;
+        text-align: center;
+        font-weight: 600;
+        transition: all 0.2s ease;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        gap: 8px;
+    }
+
+    .action-button:hover {
+        background: var(--secondary-color);
+        transform: translateY(-1px);
+        box-shadow: 0 4px 8px rgba(0, 0, 0, 0.15);
+        color: white;
+    }
+
+    .action-button.add {
+        background: var(--success-color);
+    }
+
+    .action-button.add:hover {
+        background: #047857;
+    }
+
+    .action-button.export {
+        background: var(--warning-color);
+    }
+
+    .action-button.export:hover {
+        background: #b45309;
+    }
+
+    @media (max-width: 768px) {
+        .content-grid {
+            grid-template-columns: 1fr;
+        }
+
+        .stats-grid {
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+        }
+
+        .quick-actions {
+            grid-template-columns: 1fr;
+        }
+    }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="dashboard-container">
+    <h1 style="margin-bottom: 30px; color: var(--dark-color); font-size: 2rem; font-weight: 700;">
+        📊 Dashboard Overview
+    </h1>
+
+    <!-- Statistics Cards -->
+    <div class="stats-grid">
+        <div class="stat-card billboards">
+            <div class="stat-number">{{ total_billboards }}</div>
+            <div class="stat-label">Total Billboards</div>
+        </div>
+        <div class="stat-card users">
+            <div class="stat-number">{{ total_users }}</div>
+            <div class="stat-label">Registered Users</div>
+        </div>
+        <div class="stat-card wishlists">
+            <div class="stat-number">{{ total_wishlists }}</div>
+            <div class="stat-label">Wishlist Items</div>
+        </div>
+        <div class="stat-card views">
+            <div class="stat-number">{{ total_views }}</div>
+            <div class="stat-label">Total Views</div>
+        </div>
+    </div>
+
+    <!-- Content Grid -->
+    <div class="content-grid">
+        <!-- Recent Activity -->
+        <div class="content-card">
+            <h2>🕒 Recent Activity</h2>
+            <ul class="activity-list">
+                {% for billboard in recent_billboards %}
+                <li class="activity-item">
+                    <div class="activity-icon billboard">📋</div>
+                    <div class="activity-content">
+                        <div class="activity-title">{{ billboard.city }} - {{ billboard.ooh_media_type }}</div>
+                        <div class="activity-meta">Added {{ billboard.created_at|timesince }} ago by {{ billboard.user.email|default:"Anonymous" }}</div>
+                    </div>
+                </li>
+                {% endfor %}
+                {% for user in recent_users %}
+                <li class="activity-item">
+                    <div class="activity-icon user">👤</div>
+                    <div class="activity-content">
+                        <div class="activity-title">{{ user.name|default:user.email }}</div>
+                        <div class="activity-meta">Joined {{ user.date_joined|timesince }} ago</div>
+                    </div>
+                </li>
+                {% endfor %}
+            </ul>
+        </div>
+
+        <!-- Popular Billboards -->
+        <div class="content-card">
+            <h2>🔥 Popular Billboards</h2>
+            {% for billboard in popular_billboards %}
+            <div class="popular-billboard">
+                <div class="popular-rank {% if forloop.counter <= 3 %}top{% endif %}">{{ forloop.counter }}</div>
+                <div class="popular-content">
+                    <div class="popular-title">{{ billboard.city }}</div>
+                    <div class="popular-views">{{ billboard.views }} views</div>
+                </div>
+            </div>
+            {% endfor %}
+
+            <!-- City Distribution -->
+            <div class="city-stats">
+                <h3 style="margin: 20px 0 12px 0; color: var(--dark-color); font-size: 1rem;">📍 City Distribution</h3>
+                {% for city in city_stats %}
+                <div class="city-item">
+                    <span class="city-name">{{ city.city }}</span>
+                    <span class="city-count">{{ city.count }}</span>
+                </div>
+                {% endfor %}
+            </div>
+        </div>
+    </div>
+
+    <!-- Quick Actions -->
+    <div class="quick-actions">
+        <a href="{% url 'admin:billboards_billboard_add' %}" class="action-button add">
+            ➕ Add New Billboard
+        </a>
+        <a href="{% url 'admin:users_user_add' %}" class="action-button">
+            👤 Add New User
+        </a>
+        <a href="{% url 'admin:billboards_billboard_changelist' %}" class="action-button">
+            📋 Manage Billboards
+        </a>
+        <a href="{% url 'admin:users_user_changelist' %}" class="action-button">
+            👥 Manage Users
+        </a>
+        <a href="{% url 'admin:billboards_wishlist_changelist' %}" class="action-button">
+            ❤️ View Wishlists
+        </a>
+        <a href="#" class="action-button export" onclick="exportData()">
+            📊 Export Data
+        </a>
+    </div>
+</div>
+
+<script>
+function exportData() {
+    // Add export functionality here
+    alert('Export functionality will be implemented here');
+}
+</script>
+{% endblock %}
