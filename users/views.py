@@ -18,7 +18,7 @@ import logging
 
 logger = logging.getLogger(__name__)
 
-GOOGLE_CLIENT_ID = "971707519453-srarmkadprdmpgv3853l2cgfckok9eku.apps.googleusercontent.com"
+GOOGLE_CLIENT_ID = "971707519453-srarmkadprdmpgv385312cgfckok9eku.apps.googleusercontent.com"
 
 @api_view(['GET'])
 @permission_classes([permissions.IsAuthenticated])

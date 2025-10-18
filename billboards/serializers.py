@@ -13,8 +13,8 @@ class BillboardSerializer(serializers.ModelSerializer):
             'price_range', 'display_height', 'display_width', 'advertiser_phone',
             'advertiser_whatsapp', 'company_name', 'company_website',
             'ooh_media_type', 'ooh_media_id', 'type', 'images', 'unavailable_dates',
-            'latitude', 'longitude', 'views', 'leads', 'is_active', 'created_at',
-            'user_name'
+            'latitude', 'longitude', 'views', 'leads', 'is_active', 'address',
+            'generator_backup', 'created_at', 'user_name'
         ]
         read_only_fields = ('user', 'views', 'leads', 'created_at', 'is_active', 'user_name')
 
@@ -36,7 +36,8 @@ class BillboardListSerializer(serializers.ModelSerializer):
             'price_range', 'display_height', 'display_width', 'advertiser_phone',
             'advertiser_whatsapp', 'company_name', 'company_website',
             'ooh_media_type', 'ooh_media_id', 'type', 'images', 'unavailable_dates',
-            'latitude', 'longitude', 'views', 'leads', 'is_active', 'created_at', 'user_name'
+            'latitude', 'longitude', 'views', 'leads', 'is_active', 'address',
+            'generator_backup', 'created_at', 'user_name'
         ]
         read_only_fields = ('user', 'views', 'leads', 'created_at', 'is_active', 'user_name')
 

@@ -30,6 +30,14 @@ class Billboard(models.Model):
     views = models.IntegerField(default=0)  # NEW: View count field
     leads = models.IntegerField(default=0, db_index=True)  # NEW: Simple leads counter
     is_active = models.BooleanField(default=True, db_index=True)  # NEW: Active/inactive toggle with index
+    address = models.TextField(blank=True, null=True, help_text="Detailed address of the billboard location")
+    generator_backup = models.CharField(
+        max_length=3, 
+        choices=[('Yes', 'Yes'), ('No', 'No')], 
+        blank=True, 
+        null=True,
+        help_text="Whether the billboard has generator backup"
+    )
     created_at = models.DateTimeField(auto_now_add=True, db_index=True)  # Added index for ordering
 
     def __str__(self):

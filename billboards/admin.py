@@ -6,7 +6,8 @@ class BillboardAdmin(admin.ModelAdmin):
     # Main list display with all important fields
     list_display = (
         'id', 'get_user_email', 'ooh_media_id', 'city', 'ooh_media_type', 'type', 'company_name', 
-        'price_range', 'road_name', 'number_of_boards', 'views', 'leads', 'is_active', 'created_at'
+        'price_range', 'road_name', 'number_of_boards', 'views', 'leads', 'is_active', 
+        'address', 'generator_backup', 'created_at'
     )
     
     def get_user_email(self, obj):
@@ -17,12 +18,12 @@ class BillboardAdmin(admin.ModelAdmin):
     # Search functionality
     search_fields = (
         'city', 'ooh_media_type', 'company_name', 'road_name', 
-        'description', 'advertiser_phone', 'advertiser_whatsapp'
+        'description', 'advertiser_phone', 'advertiser_whatsapp', 'address'
     )
     
     # Filters for easy data management
     list_filter = (
-        'city', 'ooh_media_type', 'type', 'is_active', 'created_at',
+        'city', 'ooh_media_type', 'type', 'is_active', 'generator_backup', 'created_at',
         ('user', admin.RelatedOnlyFieldListFilter),
     )
     
@@ -35,10 +36,10 @@ class BillboardAdmin(admin.ModelAdmin):
             'fields': ('ooh_media_type', 'ooh_media_id', 'type', 'number_of_boards')
         }),
         ('Location & Traffic', {
-            'fields': ('road_name', 'road_position', 'traffic_direction', 'latitude', 'longitude')
+            'fields': ('road_name', 'road_position', 'traffic_direction', 'latitude', 'longitude', 'address')
         }),
         ('Pricing & Performance', {
-            'fields': ('price_range', 'average_daily_views', 'exposure_time', 'views', 'leads', 'is_active')
+            'fields': ('price_range', 'average_daily_views', 'exposure_time', 'views', 'leads', 'is_active', 'generator_backup')
         }),
         ('Contact Information', {
             'fields': ('advertiser_phone', 'advertiser_whatsapp')

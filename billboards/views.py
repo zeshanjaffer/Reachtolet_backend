@@ -216,6 +216,15 @@ def track_billboard_lead(request, billboard_id):
     try:
         billboard = Billboard.objects.get(id=billboard_id)
         
+        # Check if the current user is the billboard owner
+        if request.user.is_authenticated and billboard.user == request.user:
+            return Response({
+                'message': 'Lead not tracked - owner viewing own billboard',
+                'billboard_id': billboard_id,
+                'current_leads': billboard.leads,
+                'owner_lead': True
+            }, status=status.HTTP_200_OK)
+        
         # Get client IP address
         x_forwarded_for = request.META.get('HTTP_X_FORWARDED_FOR')
         if x_forwarded_for:
