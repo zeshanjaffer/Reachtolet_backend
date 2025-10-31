@@ -9,7 +9,11 @@ from .views import (
     WishlistToggleView,
     track_billboard_lead,
     track_billboard_view,  # NEW: Import the view tracking function
-    toggle_billboard_active  # NEW: Import the toggle active function
+    toggle_billboard_active,  # NEW: Import the toggle active function
+    # Approval workflow endpoints
+    approve_billboard,
+    reject_billboard,
+    get_pending_billboards
 )
 
 urlpatterns = [
@@ -21,6 +25,11 @@ urlpatterns = [
     path('<int:billboard_id>/track-view/', track_billboard_view, name='track-billboard-view'),
     path('<int:billboard_id>/increment-view/', track_billboard_view, name='increment-billboard-view'),
     path('<int:billboard_id>/toggle-active/', toggle_billboard_active, name='toggle-billboard-active'),
+    
+    # Approval workflow endpoints (Admin only)
+    path('pending/', get_pending_billboards, name='get-pending-billboards'),
+    path('<int:billboard_id>/approve/', approve_billboard, name='approve-billboard'),
+    path('<int:billboard_id>/reject/', reject_billboard, name='reject-billboard'),
     
     # Wishlist endpoints
     path('wishlist/', WishlistView.as_view(), name='wishlist'),

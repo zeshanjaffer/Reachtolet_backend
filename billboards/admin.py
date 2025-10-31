@@ -1,4 +1,5 @@
 from django.contrib import admin
+from django.utils import timezone
 from .models import Billboard, Wishlist, Lead, View
 
 @admin.register(Billboard)
@@ -7,7 +8,7 @@ class BillboardAdmin(admin.ModelAdmin):
     list_display = (
         'id', 'get_user_email', 'ooh_media_id', 'city', 'ooh_media_type', 'type', 'company_name', 
         'price_range', 'road_name', 'number_of_boards', 'views', 'leads', 'is_active', 
-        'address', 'generator_backup', 'created_at'
+        'approval_status', 'approved_at', 'approved_by', 'address', 'generator_backup', 'created_at'
     )
     
     def get_user_email(self, obj):
@@ -23,7 +24,7 @@ class BillboardAdmin(admin.ModelAdmin):
     
     # Filters for easy data management
     list_filter = (
-        'city', 'ooh_media_type', 'type', 'is_active', 'generator_backup', 'created_at',
+        'city', 'ooh_media_type', 'type', 'is_active', 'approval_status', 'generator_backup', 'created_at',
         ('user', admin.RelatedOnlyFieldListFilter),
     )
     
@@ -47,6 +48,12 @@ class BillboardAdmin(admin.ModelAdmin):
         ('Media & Dates', {
             'fields': ('images', 'unavailable_dates', 'display_height', 'display_width')
         }),
+        ('Approval Status', {
+            'fields': (
+                'approval_status', 'approved_at', 'approved_by',
+                'rejected_at', 'rejected_by', 'rejection_reason'
+            )
+        }),
         ('Timestamps', {
             'fields': ('created_at',),
             'classes': ('collapse',)
@@ -54,7 +61,7 @@ class BillboardAdmin(admin.ModelAdmin):
     )
     
     # Read-only fields
-    readonly_fields = ('views', 'leads', 'created_at')
+    readonly_fields = ('views', 'leads', 'created_at', 'approved_at', 'rejected_at')
     
     # List per page
     list_per_page = 25
@@ -66,7 +73,7 @@ class BillboardAdmin(admin.ModelAdmin):
     date_hierarchy = 'created_at'
     
     # Actions
-    actions = ['mark_as_lighting', 'mark_as_non_lighting', 'reset_views', 'reset_leads', 'activate_billboards', 'deactivate_billboards']
+    actions = ['mark_as_lighting', 'mark_as_non_lighting', 'reset_views', 'reset_leads', 'activate_billboards', 'deactivate_billboards', 'approve_billboards', 'reject_billboards']
     
     def mark_as_lighting(self, request, queryset):
         updated = queryset.update(type='Lighting')
@@ -101,6 +108,27 @@ class BillboardAdmin(admin.ModelAdmin):
         updated = queryset.update(is_active=False)
         self.message_user(request, f'{updated} billboards deactivated successfully.')
     deactivate_billboards.short_description = "Deactivate selected billboards"
+    
+    # NEW: Action to approve billboards
+    def approve_billboards(self, request, queryset):
+        updated = queryset.filter(approval_status='pending').update(
+            approval_status='approved',
+            approved_at=timezone.now(),
+            approved_by=request.user
+        )
+        self.message_user(request, f'{updated} billboards approved successfully.')
+    approve_billboards.short_description = "Approve selected pending billboards"
+    
+    # NEW: Action to reject billboards
+    def reject_billboards(self, request, queryset):
+        updated = queryset.filter(approval_status='pending').update(
+            approval_status='rejected',
+            rejected_at=timezone.now(),
+            rejected_by=request.user,
+            rejection_reason='Bulk rejection by admin'
+        )
+        self.message_user(request, f'{updated} billboards rejected successfully.')
+    reject_billboards.short_description = "Reject selected pending billboards"
     
     def get_queryset(self, request):
         return super().get_queryset(request).select_related('user')

@@ -5,6 +5,11 @@ class BillboardSerializer(serializers.ModelSerializer):
     # OPTIMIZED: Add user_name field for better performance
     user_name = serializers.CharField(source='user.name', read_only=True)
     
+    # Approval workflow fields
+    approval_status_display = serializers.CharField(source='get_approval_status_display', read_only=True)
+    approved_by_username = serializers.CharField(source='approved_by.username', read_only=True)
+    rejected_by_username = serializers.CharField(source='rejected_by.username', read_only=True)
+    
     class Meta:
         model = Billboard
         fields = [
@@ -14,9 +19,14 @@ class BillboardSerializer(serializers.ModelSerializer):
             'advertiser_whatsapp', 'company_name', 'company_website',
             'ooh_media_type', 'ooh_media_id', 'type', 'images', 'unavailable_dates',
             'latitude', 'longitude', 'views', 'leads', 'is_active', 'address',
-            'generator_backup', 'created_at', 'user_name'
+            'generator_backup', 'created_at', 'user_name',
+            # Approval workflow fields
+            'approval_status', 'approval_status_display', 'approved_at', 'rejected_at',
+            'rejection_reason', 'approved_by_username', 'rejected_by_username'
         ]
-        read_only_fields = ('user', 'views', 'leads', 'created_at', 'is_active', 'user_name')
+        read_only_fields = ('user', 'views', 'leads', 'created_at', 'is_active', 'user_name', 
+                           'approved_at', 'rejected_at', 'approved_by', 'rejected_by', 
+                           'approval_status_display', 'approved_by_username', 'rejected_by_username')
 
     def create(self, validated_data):
         # Set the user from the request
@@ -28,6 +38,11 @@ class BillboardListSerializer(serializers.ModelSerializer):
     # OPTIMIZED: Lightweight serializer for list views with ALL fields
     user_name = serializers.CharField(source='user.name', read_only=True)
     
+    # Approval workflow fields
+    approval_status_display = serializers.CharField(source='get_approval_status_display', read_only=True)
+    approved_by_username = serializers.CharField(source='approved_by.username', read_only=True)
+    rejected_by_username = serializers.CharField(source='rejected_by.username', read_only=True)
+    
     class Meta:
         model = Billboard
         fields = [
@@ -37,9 +52,14 @@ class BillboardListSerializer(serializers.ModelSerializer):
             'advertiser_whatsapp', 'company_name', 'company_website',
             'ooh_media_type', 'ooh_media_id', 'type', 'images', 'unavailable_dates',
             'latitude', 'longitude', 'views', 'leads', 'is_active', 'address',
-            'generator_backup', 'created_at', 'user_name'
+            'generator_backup', 'created_at', 'user_name',
+            # Approval workflow fields
+            'approval_status', 'approval_status_display', 'approved_at', 'rejected_at',
+            'rejection_reason', 'approved_by_username', 'rejected_by_username'
         ]
-        read_only_fields = ('user', 'views', 'leads', 'created_at', 'is_active', 'user_name')
+        read_only_fields = ('user', 'views', 'leads', 'created_at', 'is_active', 'user_name',
+                           'approved_at', 'rejected_at', 'approved_by', 'rejected_by',
+                           'approval_status_display', 'approved_by_username', 'rejected_by_username')
 
 
 class WishlistSerializer(serializers.ModelSerializer):

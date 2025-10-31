@@ -24,6 +24,7 @@ INSTALLED_APPS = [
     'users',
     'billboards',
     'notifications',
+    'admin_panel',
 ]
 
 MIDDLEWARE = [

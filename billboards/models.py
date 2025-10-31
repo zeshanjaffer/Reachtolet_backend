@@ -1,5 +1,6 @@
 from django.db import models
 from django.conf import settings
+from django.utils import timezone
 
 class Billboard(models.Model):
     user = models.ForeignKey(
@@ -38,10 +39,60 @@ class Billboard(models.Model):
         null=True,
         help_text="Whether the billboard has generator backup"
     )
+    
+    # Approval workflow fields
+    approval_status = models.CharField(
+        max_length=20,
+        choices=[
+            ('pending', 'Pending'),
+            ('approved', 'Approved'),
+            ('rejected', 'Rejected')
+        ],
+        default='pending',
+        help_text="Current approval status of the billboard",
+        db_index=True
+    )
+    
+    approved_at = models.DateTimeField(
+        null=True, 
+        blank=True,
+        help_text="When the billboard was approved"
+    )
+    
+    rejected_at = models.DateTimeField(
+        null=True, 
+        blank=True,
+        help_text="When the billboard was rejected"
+    )
+    
+    rejection_reason = models.TextField(
+        blank=True, 
+        null=True,
+        help_text="Reason for rejection (if applicable)"
+    )
+    
+    approved_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name='approved_billboards',
+        help_text="Admin user who approved this billboard"
+    )
+    
+    rejected_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name='rejected_billboards',
+        help_text="Admin user who rejected this billboard"
+    )
+    
     created_at = models.DateTimeField(auto_now_add=True, db_index=True)  # Added index for ordering
 
     def __str__(self):
-        return f"{self.city} - {self.ooh_media_type}"
+        return f"{self.city} - {self.get_approval_status_display()}"
 
     def increment_views(self):
         """Increment the view count for this billboard"""
@@ -58,6 +109,40 @@ class Billboard(models.Model):
         self.is_active = not self.is_active
         self.save(update_fields=['is_active'])
         return self.is_active
+    
+    def approve(self, approved_by_user):
+        """Approve the billboard"""
+        self.approval_status = 'approved'
+        self.approved_at = timezone.now()
+        self.approved_by = approved_by_user
+        self.rejected_at = None
+        self.rejected_by = None
+        self.rejection_reason = None
+        self.save(update_fields=['approval_status', 'approved_at', 'approved_by', 'rejected_at', 'rejected_by', 'rejection_reason'])
+        return True
+    
+    def reject(self, rejected_by_user, rejection_reason=''):
+        """Reject the billboard"""
+        self.approval_status = 'rejected'
+        self.rejected_at = timezone.now()
+        self.rejected_by = rejected_by_user
+        self.rejection_reason = rejection_reason
+        self.approved_at = None
+        self.approved_by = None
+        self.save(update_fields=['approval_status', 'rejected_at', 'rejected_by', 'rejection_reason', 'approved_at', 'approved_by'])
+        return True
+    
+    def is_approved(self):
+        """Check if billboard is approved"""
+        return self.approval_status == 'approved'
+    
+    def is_pending(self):
+        """Check if billboard is pending approval"""
+        return self.approval_status == 'pending'
+    
+    def is_rejected(self):
+        """Check if billboard is rejected"""
+        return self.approval_status == 'rejected'
 
     class Meta:
         ordering = ['-created_at']
@@ -66,6 +151,9 @@ class Billboard(models.Model):
             models.Index(fields=['user', 'is_active']),  # Composite index for user's billboards
             models.Index(fields=['city', 'is_active']),  # Composite index for city filtering
             models.Index(fields=['leads']),  # Index for lead analytics
+            models.Index(fields=['approval_status']),  # Index for approval status filtering
+            models.Index(fields=['approval_status', 'is_active']),  # Composite index for approved and active billboards
+            models.Index(fields=['user', 'approval_status']),  # Composite index for user's billboards by status
         ]
 
 

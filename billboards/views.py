@@ -15,8 +15,10 @@ from core.pagination import CustomPagination
 from django.utils.decorators import method_decorator
 from django.views.decorators.cache import cache_page
 from django.views.decorators.vary import vary_on_cookie
-from rest_framework.decorators import api_view
+from rest_framework.decorators import api_view, permission_classes
+from rest_framework.permissions import IsAuthenticated, IsAdminUser
 from django.db.models import Prefetch
+from django.utils import timezone
 # WebSocket imports removed
 import os
 import uuid
@@ -27,7 +29,11 @@ logger = logging.getLogger(__name__)
 class BillboardListCreateView(generics.ListCreateAPIView):
     # OPTIMIZED: Enhanced queryset with select_related and only for better performance
     def get_queryset(self):
-        return Billboard.objects.filter(is_active=True)\
+        # Only show approved and active billboards for public map
+        return Billboard.objects.filter(
+            is_active=True, 
+            approval_status='approved'
+        )\
             .select_related('user')\
             .only(
                 'id', 'city', 'description', 'number_of_boards', 'average_daily_views',
@@ -36,7 +42,7 @@ class BillboardListCreateView(generics.ListCreateAPIView):
                 'advertiser_whatsapp', 'company_name', 'company_website',
                 'ooh_media_type', 'ooh_media_id', 'type', 'images', 'unavailable_dates',
                 'latitude', 'longitude', 'views', 'leads', 'is_active', 'created_at',
-                'user__id', 'user__name', 'user__email'
+                'user__id', 'user__name', 'user__email', 'approval_status'
             )\
             .order_by('-created_at')
     
@@ -56,7 +62,8 @@ class BillboardListCreateView(generics.ListCreateAPIView):
 
     def perform_create(self, serializer):
         user = self.request.user if self.request.user.is_authenticated else None
-        billboard = serializer.save(user=user)
+        # Set default approval status to pending for new billboards
+        billboard = serializer.save(user=user, approval_status='pending')
         # WebSocket notifications removed
 
     def notify_new_billboard(self, billboard):
@@ -109,13 +116,13 @@ class MyBillboardsView(generics.ListAPIView):
     permission_classes = [permissions.IsAuthenticated]
     pagination_class = CustomPagination
     filter_backends = [DjangoFilterBackend, SearchFilter, OrderingFilter]
-    filterset_fields = ['city', 'ooh_media_type', 'type', 'is_active']  # Added is_active filter
+    filterset_fields = ['city', 'ooh_media_type', 'type', 'is_active', 'approval_status']  # Added approval_status filter
     search_fields = ['city', 'description', 'company_name']
     ordering_fields = ['created_at', 'price_range']
     ordering = ['-created_at']
 
     def get_queryset(self):
-        # OPTIMIZED: Enhanced queryset for user's billboards with ALL fields
+        # OPTIMIZED: Enhanced queryset for user's billboards with ALL fields and ALL statuses
         return Billboard.objects.filter(user=self.request.user)\
             .select_related('user')\
             .only(
@@ -125,7 +132,8 @@ class MyBillboardsView(generics.ListAPIView):
                 'advertiser_whatsapp', 'company_name', 'company_website',
                 'ooh_media_type', 'ooh_media_id', 'type', 'images', 'unavailable_dates',
                 'latitude', 'longitude', 'views', 'leads', 'is_active', 'created_at',
-                'user__id', 'user__name', 'user__email'
+                'user__id', 'user__name', 'user__email', 'approval_status', 'approved_at',
+                'rejected_at', 'rejection_reason', 'approved_by', 'rejected_by'
             )
 
 
@@ -459,3 +467,106 @@ class HealthCheckView(APIView):
             'timestamp': datetime.now().isoformat(),
             'message': 'Backend is running'
         }, status=status.HTTP_200_OK)
+
+
+# Billboard Approval Workflow Endpoints
+
+@api_view(['POST'])
+@permission_classes([IsAuthenticated, IsAdminUser])
+def approve_billboard(request, billboard_id):
+    """
+    Approve a pending billboard
+    URL: api/billboards/{id}/approve/
+    Method: POST
+    Permission: Admin only
+    """
+    try:
+        billboard = Billboard.objects.get(id=billboard_id)
+        
+        if billboard.approval_status != 'pending':
+            return Response({
+                'error': f'Billboard is already {billboard.approval_status}'
+            }, status=status.HTTP_400_BAD_REQUEST)
+        
+        # Update billboard status using the model method
+        billboard.approve(request.user)
+        
+        return Response({
+            'message': 'Billboard approved successfully',
+            'billboard': BillboardSerializer(billboard).data
+        }, status=status.HTTP_200_OK)
+        
+    except Billboard.DoesNotExist:
+        return Response({
+            'error': 'Billboard not found'
+        }, status=status.HTTP_404_NOT_FOUND)
+    except Exception as e:
+        return Response({
+            'error': f'Failed to approve billboard: {str(e)}'
+        }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+
+@api_view(['POST'])
+@permission_classes([IsAuthenticated, IsAdminUser])
+def reject_billboard(request, billboard_id):
+    """
+    Reject a pending billboard
+    URL: api/billboards/{id}/reject/
+    Method: POST
+    Permission: Admin only
+    Body: { "rejection_reason": "Optional reason for rejection" }
+    """
+    try:
+        billboard = Billboard.objects.get(id=billboard_id)
+        
+        if billboard.approval_status != 'pending':
+            return Response({
+                'error': f'Billboard is already {billboard.approval_status}'
+            }, status=status.HTTP_400_BAD_REQUEST)
+        
+        # Get rejection reason from request
+        rejection_reason = request.data.get('rejection_reason', '')
+        
+        # Update billboard status using the model method
+        billboard.reject(request.user, rejection_reason)
+        
+        return Response({
+            'message': 'Billboard rejected successfully',
+            'billboard': BillboardSerializer(billboard).data
+        }, status=status.HTTP_200_OK)
+        
+    except Billboard.DoesNotExist:
+        return Response({
+            'error': 'Billboard not found'
+        }, status=status.HTTP_404_NOT_FOUND)
+    except Exception as e:
+        return Response({
+            'error': f'Failed to reject billboard: {str(e)}'
+        }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+
+@api_view(['GET'])
+@permission_classes([IsAuthenticated, IsAdminUser])
+def get_pending_billboards(request):
+    """
+    Get all pending billboards for admin review
+    URL: api/billboards/pending/
+    Method: GET
+    Permission: Admin only
+    """
+    try:
+        pending_billboards = Billboard.objects.filter(
+            approval_status='pending'
+        ).select_related('user').order_by('-created_at')
+        
+        serializer = BillboardSerializer(pending_billboards, many=True)
+        
+        return Response({
+            'results': serializer.data,
+            'count': pending_billboards.count()
+        }, status=status.HTTP_200_OK)
+        
+    except Exception as e:
+        return Response({
+            'error': f'Failed to fetch pending billboards: {str(e)}'
+        }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)

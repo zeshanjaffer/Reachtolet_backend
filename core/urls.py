@@ -8,6 +8,7 @@ urlpatterns = [
     path('api/billboards/', include('billboards.urls')),
     path('api/users/', include('users.urls')),
     path('api/notifications/', include('notifications.urls')),
+    path('api/admin-panel/', include('admin_panel.urls')),
 ]
 
 # Serve media files in development
