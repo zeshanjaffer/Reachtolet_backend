@@ -110,5 +110,60 @@ def store_previous_state(sender, instance, **kwargs):
             # Get the previous state from database
             previous = Billboard.objects.get(id=instance.id)
             instance._previous_is_active = previous.is_active
+            instance._previous_approval_status = previous.approval_status
         except Billboard.DoesNotExist:
             instance._previous_is_active = None
+            instance._previous_approval_status = None
+
+@receiver(post_save, sender=Billboard)
+def send_billboard_approval_notification(sender, instance, **kwargs):
+    """Send notification when billboard approval status changes"""
+    if not instance.user:
+        return
+    
+    # Check if approval status changed
+    if hasattr(instance, '_previous_approval_status'):
+        previous_status = instance._previous_approval_status
+        current_status = instance.approval_status
+        
+        # Only send notification if status actually changed
+        if previous_status != current_status:
+            try:
+                if current_status == 'approved':
+                    # Billboard was approved
+                    push_service.send_notification(
+                        user=instance.user,
+                        notification_type=NotificationType.BILLBOARD_APPROVED,
+                        title="Billboard Approved! ✅",
+                        body=f"Your billboard in {instance.city} has been approved and is now live on the map!",
+                        data={
+                            'billboard_id': str(instance.id),
+                            'billboard_city': instance.city,
+                            'approval_status': 'approved',
+                            'approved_at': instance.approved_at.isoformat() if instance.approved_at else None
+                        },
+                        content_object=instance
+                    )
+                    logger.info(f"Billboard approval notification sent to user {instance.user.id}")
+                    
+                elif current_status == 'rejected':
+                    # Billboard was rejected
+                    rejection_reason = instance.rejection_reason or "No reason provided"
+                    push_service.send_notification(
+                        user=instance.user,
+                        notification_type=NotificationType.BILLBOARD_REJECTED,
+                        title="Billboard Rejected ❌",
+                        body=f"Your billboard in {instance.city} was rejected. Reason: {rejection_reason}",
+                        data={
+                            'billboard_id': str(instance.id),
+                            'billboard_city': instance.city,
+                            'approval_status': 'rejected',
+                            'rejection_reason': rejection_reason,
+                            'rejected_at': instance.rejected_at.isoformat() if instance.rejected_at else None
+                        },
+                        content_object=instance
+                    )
+                    logger.info(f"Billboard rejection notification sent to user {instance.user.id}")
+                    
+            except Exception as e:
+                logger.error(f"Failed to send approval/rejection notification: {str(e)}")

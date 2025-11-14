@@ -161,6 +161,10 @@ class PushNotificationService:
                 return False
             elif notification_type == 'system_message' and not preferences.system_messages_enabled:
                 return False
+            # Billboard approval/rejection notifications are always enabled (important updates)
+            elif notification_type in ['billboard_approved', 'billboard_rejected']:
+                # These are important notifications, always send if push is enabled
+                pass
             
             return True
             

@@ -112,6 +112,8 @@ class Billboard(models.Model):
     
     def approve(self, approved_by_user):
         """Approve the billboard"""
+        # Store previous status for signal
+        self._previous_approval_status = self.approval_status
         self.approval_status = 'approved'
         self.approved_at = timezone.now()
         self.approved_by = approved_by_user
@@ -123,6 +125,8 @@ class Billboard(models.Model):
     
     def reject(self, rejected_by_user, rejection_reason=''):
         """Reject the billboard"""
+        # Store previous status for signal
+        self._previous_approval_status = self.approval_status
         self.approval_status = 'rejected'
         self.rejected_at = timezone.now()
         self.rejected_by = rejected_by_user

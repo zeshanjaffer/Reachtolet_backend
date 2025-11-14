@@ -12,6 +12,8 @@ class NotificationType(models.TextChoices):
     WISHLIST_ADDED = 'wishlist_added', 'Added to Wishlist'
     BILLBOARD_ACTIVATED = 'billboard_activated', 'Billboard Activated'
     BILLBOARD_DEACTIVATED = 'billboard_deactivated', 'Billboard Deactivated'
+    BILLBOARD_APPROVED = 'billboard_approved', 'Billboard Approved'
+    BILLBOARD_REJECTED = 'billboard_rejected', 'Billboard Rejected'
     PRICE_UPDATE = 'price_update', 'Price Update'
     SYSTEM_MESSAGE = 'system_message', 'System Message'
     WELCOME = 'welcome', 'Welcome Message'

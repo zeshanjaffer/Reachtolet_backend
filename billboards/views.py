@@ -488,7 +488,7 @@ def approve_billboard(request, billboard_id):
                 'error': f'Billboard is already {billboard.approval_status}'
             }, status=status.HTTP_400_BAD_REQUEST)
         
-        # Update billboard status using the model method
+        # Update billboard status using the model method (signal will be triggered automatically)
         billboard.approve(request.user)
         
         return Response({
@@ -527,7 +527,7 @@ def reject_billboard(request, billboard_id):
         # Get rejection reason from request
         rejection_reason = request.data.get('rejection_reason', '')
         
-        # Update billboard status using the model method
+        # Update billboard status using the model method (signal will be triggered automatically)
         billboard.reject(request.user, rejection_reason)
         
         return Response({
