@@ -3,8 +3,6 @@ from .models import Billboard, Wishlist, Lead, View
 from .serializers import BillboardSerializer, BillboardListSerializer, WishlistSerializer
 from .filters import BillboardFilter
 from rest_framework.views import APIView
-from drf_yasg.utils import swagger_auto_schema
-from drf_yasg import openapi
 from rest_framework.parsers import MultiPartParser, FormParser
 from rest_framework.response import Response
 from django.conf import settings
@@ -29,12 +27,6 @@ import logging
 logger = logging.getLogger(__name__)
 
 class BillboardListCreateView(generics.ListCreateAPIView):
-    """
-    List all billboards or create a new billboard.
-    
-    - **GET**: Returns a list of approved and active billboards
-    - **POST**: Creates a new billboard (requires authentication)
-    """
     # OPTIMIZED: Enhanced queryset with select_related and only for better performance
     def get_queryset(self):
         # Only show approved and active billboards for public map
@@ -67,39 +59,6 @@ class BillboardListCreateView(generics.ListCreateAPIView):
     search_fields = ['city', 'description', 'company_name', 'road_name']
     ordering_fields = ['created_at', 'price_range', 'city', 'views']
     ordering = ['-created_at']
-    
-    @swagger_auto_schema(
-        operation_summary="List all billboards",
-        operation_description="Get a list of all approved and active billboards. Supports filtering, searching, and pagination.",
-        tags=['Billboards'],
-        manual_parameters=[
-            openapi.Parameter('ne_lat', openapi.IN_QUERY, description="Northeast latitude (for map bounds)", type=openapi.TYPE_NUMBER),
-            openapi.Parameter('ne_lng', openapi.IN_QUERY, description="Northeast longitude (for map bounds)", type=openapi.TYPE_NUMBER),
-            openapi.Parameter('sw_lat', openapi.IN_QUERY, description="Southwest latitude (for map bounds)", type=openapi.TYPE_NUMBER),
-            openapi.Parameter('sw_lng', openapi.IN_QUERY, description="Southwest longitude (for map bounds)", type=openapi.TYPE_NUMBER),
-            openapi.Parameter('zoom', openapi.IN_QUERY, description="Map zoom level (for clustering)", type=openapi.TYPE_INTEGER),
-            openapi.Parameter('cluster', openapi.IN_QUERY, description="Enable clustering (true/false)", type=openapi.TYPE_BOOLEAN),
-            openapi.Parameter('ooh_media_type', openapi.IN_QUERY, description="Filter by media type", type=openapi.TYPE_STRING),
-            openapi.Parameter('search', openapi.IN_QUERY, description="Search in city, description, company_name, road_name", type=openapi.TYPE_STRING),
-        ],
-        responses={200: BillboardListSerializer(many=True)}
-    )
-    def get(self, request, *args, **kwargs):
-        return super().get(request, *args, **kwargs)
-    
-    @swagger_auto_schema(
-        operation_summary="Create a new billboard",
-        operation_description="Create a new billboard. Requires authentication. New billboards are set to 'pending' status.",
-        tags=['Billboards'],
-        request_body=BillboardSerializer,
-        responses={
-            201: BillboardSerializer,
-            400: 'Bad Request',
-            401: 'Unauthorized'
-        }
-    )
-    def post(self, request, *args, **kwargs):
-        return super().post(request, *args, **kwargs)
 
     def paginate_queryset(self, queryset):
         """
@@ -159,13 +118,6 @@ class BillboardListCreateView(generics.ListCreateAPIView):
         return super().get(request, *args, **kwargs)
 
 class BillboardDetailView(generics.RetrieveUpdateDestroyAPIView):
-    """
-    Retrieve, update or delete a billboard.
-    
-    - **GET**: Get billboard details
-    - **PUT/PATCH**: Update billboard (owner only)
-    - **DELETE**: Delete billboard (owner only)
-    """
     # OPTIMIZED: Enhanced queryset for single billboard view
     def get_queryset(self):
         return Billboard.objects.select_related('user')\
@@ -181,40 +133,6 @@ class BillboardDetailView(generics.RetrieveUpdateDestroyAPIView):
     
     serializer_class = BillboardSerializer
     permission_classes = [permissions.AllowAny]
-    
-    @swagger_auto_schema(
-        operation_summary="Get billboard details",
-        tags=['Billboards'],
-        responses={200: BillboardSerializer}
-    )
-    def get(self, request, *args, **kwargs):
-        return super().get(request, *args, **kwargs)
-    
-    @swagger_auto_schema(
-        operation_summary="Update billboard",
-        tags=['Billboards'],
-        request_body=BillboardSerializer,
-        responses={200: BillboardSerializer}
-    )
-    def put(self, request, *args, **kwargs):
-        return super().put(request, *args, **kwargs)
-    
-    @swagger_auto_schema(
-        operation_summary="Partially update billboard",
-        tags=['Billboards'],
-        request_body=BillboardSerializer,
-        responses={200: BillboardSerializer}
-    )
-    def patch(self, request, *args, **kwargs):
-        return super().patch(request, *args, **kwargs)
-    
-    @swagger_auto_schema(
-        operation_summary="Delete billboard",
-        tags=['Billboards'],
-        responses={204: 'No Content'}
-    )
-    def delete(self, request, *args, **kwargs):
-        return super().delete(request, *args, **kwargs)
 
     def update(self, request, *args, **kwargs):
         response = super().update(request, *args, **kwargs)
@@ -236,21 +154,8 @@ class BillboardDetailView(generics.RetrieveUpdateDestroyAPIView):
         pass
 
 class MyBillboardsView(generics.ListAPIView):
-    """
-    Get all billboards created by the authenticated user.
-    Includes all statuses (pending, approved, rejected).
-    """
     serializer_class = BillboardListSerializer
     permission_classes = [permissions.IsAuthenticated]
-    
-    @swagger_auto_schema(
-        operation_summary="Get my billboards",
-        operation_description="Get all billboards created by the authenticated user",
-        tags=['Billboards'],
-        responses={200: BillboardListSerializer(many=True)}
-    )
-    def get(self, request, *args, **kwargs):
-        return super().get(request, *args, **kwargs)
     pagination_class = CustomPagination
     filter_backends = [DjangoFilterBackend, SearchFilter, OrderingFilter]
     filterset_fields = ['city', 'ooh_media_type', 'type', 'is_active', 'approval_status']  # Added approval_status filter
@@ -275,37 +180,9 @@ class MyBillboardsView(generics.ListAPIView):
 
 
 class WishlistView(generics.ListCreateAPIView):
-    """
-    View for managing user's wishlist
-    
-    - **GET**: Get all billboards in user's wishlist
-    - **POST**: Add a billboard to wishlist
-    """
+    """View for managing user's wishlist"""
     serializer_class = WishlistSerializer
     permission_classes = [permissions.IsAuthenticated]
-    
-    @swagger_auto_schema(
-        operation_summary="Get my wishlist",
-        tags=['Wishlist'],
-        responses={200: WishlistSerializer(many=True)}
-    )
-    def get(self, request, *args, **kwargs):
-        return super().get(request, *args, **kwargs)
-    
-    @swagger_auto_schema(
-        operation_summary="Add to wishlist",
-        tags=['Wishlist'],
-        request_body=openapi.Schema(
-            type=openapi.TYPE_OBJECT,
-            required=['billboard_id'],
-            properties={
-                'billboard_id': openapi.Schema(type=openapi.TYPE_INTEGER, description='Billboard ID to add')
-            }
-        ),
-        responses={201: WishlistSerializer}
-    )
-    def post(self, request, *args, **kwargs):
-        return super().post(request, *args, **kwargs)
     pagination_class = CustomPagination
     filter_backends = [DjangoFilterBackend, SearchFilter, OrderingFilter]
     search_fields = ['billboard__city', 'billboard__description', 'billboard__company_name']
@@ -383,25 +260,6 @@ class WishlistToggleView(APIView):
 
 
 # Updated Lead Tracking View with Duplicate Prevention
-@swagger_auto_schema(
-    method='post',
-    operation_summary="Track billboard lead",
-    operation_description="Track a lead (phone/WhatsApp click) for a billboard. Owner leads are not counted. Duplicate leads are prevented.",
-    tags=['Analytics & Tracking'],
-    responses={
-        200: openapi.Response('Lead tracked or already exists', schema=openapi.Schema(
-            type=openapi.TYPE_OBJECT,
-            properties={
-                'message': openapi.Schema(type=openapi.TYPE_STRING),
-                'billboard_id': openapi.Schema(type=openapi.TYPE_INTEGER),
-                'current_leads': openapi.Schema(type=openapi.TYPE_INTEGER),
-                'owner_lead': openapi.Schema(type=openapi.TYPE_BOOLEAN),
-                'duplicate': openapi.Schema(type=openapi.TYPE_BOOLEAN),
-            }
-        )),
-        404: 'Billboard not found'
-    }
-)
 @api_view(['POST'])
 def track_billboard_lead(request, billboard_id):
     """
@@ -579,25 +437,6 @@ def toggle_billboard_active(request, billboard_id):
         }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
 # UPDATED: View tracking endpoint with duplicate prevention
-@swagger_auto_schema(
-    method='post',
-    operation_summary="Track billboard view",
-    operation_description="Track a view for a billboard. Owner views are not counted. Duplicate views are prevented.",
-    tags=['Analytics & Tracking'],
-    responses={
-        200: openapi.Response('View tracked or already exists', schema=openapi.Schema(
-            type=openapi.TYPE_OBJECT,
-            properties={
-                'message': openapi.Schema(type=openapi.TYPE_STRING),
-                'billboard_id': openapi.Schema(type=openapi.TYPE_INTEGER),
-                'current_views': openapi.Schema(type=openapi.TYPE_INTEGER),
-                'owner_view': openapi.Schema(type=openapi.TYPE_BOOLEAN),
-                'duplicate': openapi.Schema(type=openapi.TYPE_BOOLEAN),
-            }
-        )),
-        404: 'Billboard not found'
-    }
-)
 @api_view(['POST'])
 def track_billboard_view(request, billboard_id):
     """
@@ -699,19 +538,6 @@ class HealthCheckView(APIView):
 
 # Billboard Approval Workflow Endpoints
 
-@swagger_auto_schema(
-    method='post',
-    operation_summary="Approve billboard",
-    operation_description="Approve a pending billboard. Admin only.",
-    tags=['Admin - Billboard Approval'],
-    security=[{'Bearer': []}],
-    responses={
-        200: BillboardSerializer,
-        400: 'Billboard is already approved/rejected',
-        403: 'Admin access required',
-        404: 'Billboard not found'
-    }
-)
 @api_view(['POST'])
 @permission_classes([IsAuthenticated, IsAdminUser])
 def approve_billboard(request, billboard_id):
@@ -747,25 +573,6 @@ def approve_billboard(request, billboard_id):
         }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
 
-@swagger_auto_schema(
-    method='post',
-    operation_summary="Reject billboard",
-    operation_description="Reject a pending billboard. Admin only.",
-    tags=['Admin - Billboard Approval'],
-    security=[{'Bearer': []}],
-    request_body=openapi.Schema(
-        type=openapi.TYPE_OBJECT,
-        properties={
-            'rejection_reason': openapi.Schema(type=openapi.TYPE_STRING, description='Reason for rejection')
-        }
-    ),
-    responses={
-        200: BillboardSerializer,
-        400: 'Billboard is already approved/rejected',
-        403: 'Admin access required',
-        404: 'Billboard not found'
-    }
-)
 @api_view(['POST'])
 @permission_classes([IsAuthenticated, IsAdminUser])
 def reject_billboard(request, billboard_id):
@@ -805,26 +612,6 @@ def reject_billboard(request, billboard_id):
         }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
 
-@swagger_auto_schema(
-    method='get',
-    operation_summary="Get pending billboards",
-    operation_description="Get all pending billboards awaiting admin review",
-    tags=['Admin - Billboard Approval'],
-    security=[{'Bearer': []}],
-    responses={
-        200: openapi.Response('List of pending billboards', schema=openapi.Schema(
-            type=openapi.TYPE_OBJECT,
-            properties={
-                'results': openapi.Schema(
-                    type=openapi.TYPE_ARRAY,
-                    items=openapi.Items(type=openapi.TYPE_OBJECT)
-                ),
-                'count': openapi.Schema(type=openapi.TYPE_INTEGER)
-            }
-        )),
-        403: 'Admin access required'
-    }
-)
 @api_view(['GET'])
 @permission_classes([IsAuthenticated, IsAdminUser])
 def get_pending_billboards(request):

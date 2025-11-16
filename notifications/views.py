@@ -2,8 +2,6 @@ from rest_framework import generics, permissions, status
 from rest_framework.views import APIView
 from rest_framework.response import Response
 from rest_framework.decorators import api_view, permission_classes
-from drf_yasg.utils import swagger_auto_schema
-from drf_yasg import openapi
 from django.shortcuts import get_object_or_404
 from django.contrib.auth import get_user_model
 from .models import (
@@ -24,23 +22,9 @@ logger = logging.getLogger(__name__)
 User = get_user_model()
 
 class DeviceTokenView(generics.CreateAPIView):
-    """
-    Register or update device token for push notifications.
-    Required for receiving push notifications on mobile devices.
-    """
+    """Register or update device token for push notifications"""
     serializer_class = DeviceTokenSerializer
     permission_classes = [permissions.IsAuthenticated]
-    
-    @swagger_auto_schema(
-        operation_summary="Register device token",
-        operation_description="Register FCM device token for push notifications",
-        tags=['Notifications'],
-        security=[{'Bearer': []}],
-        request_body=DeviceTokenSerializer,
-        responses={201: 'Device token registered successfully'}
-    )
-    def post(self, request, *args, **kwargs):
-        return super().post(request, *args, **kwargs)
     
     def create(self, request, *args, **kwargs):
         serializer = self.get_serializer(data=request.data)
@@ -97,22 +81,10 @@ class NotificationPreferenceView(generics.RetrieveUpdateAPIView):
         return NotificationPreference.objects.get_or_create(user=self.request.user)[0]
 
 class UserNotificationsView(generics.ListAPIView):
-    """
-    Get user's notifications.
-    Returns paginated list of push notifications for the authenticated user.
-    """
+    """Get user's notifications"""
     serializer_class = PushNotificationSerializer
     permission_classes = [permissions.IsAuthenticated]
     pagination_class = CustomPagination
-    
-    @swagger_auto_schema(
-        operation_summary="Get my notifications",
-        tags=['Notifications'],
-        security=[{'Bearer': []}],
-        responses={200: PushNotificationSerializer(many=True)}
-    )
-    def get(self, request, *args, **kwargs):
-        return super().get(request, *args, **kwargs)
     
     def get_queryset(self):
         return push_service.get_user_notifications(
@@ -121,13 +93,6 @@ class UserNotificationsView(generics.ListAPIView):
             offset=self.request.query_params.get('offset', 0)
         )
 
-@swagger_auto_schema(
-    method='post',
-    operation_summary="Mark notification as opened",
-    tags=['Notifications'],
-    security=[{'Bearer': []}],
-    responses={200: 'Notification marked as opened', 400: 'Failed to mark notification'}
-)
 @api_view(['POST'])
 @permission_classes([permissions.IsAuthenticated])
 def mark_notification_opened(request, notification_id):
@@ -143,13 +108,6 @@ def mark_notification_opened(request, notification_id):
             'error': 'Failed to mark notification as opened'
         }, status=status.HTTP_400_BAD_REQUEST)
 
-@swagger_auto_schema(
-    method='post',
-    operation_summary="Mark all notifications as opened",
-    tags=['Notifications'],
-    security=[{'Bearer': []}],
-    responses={200: 'All notifications marked as opened'}
-)
 @api_view(['POST'])
 @permission_classes([permissions.IsAuthenticated])
 def mark_all_notifications_opened(request):
@@ -170,23 +128,9 @@ def mark_all_notifications_opened(request):
         }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
 class SendNotificationView(generics.CreateAPIView):
-    """
-    Send custom notification to users (admin only).
-    Allows admins to send push notifications to specific users or all users.
-    """
+    """Send custom notification (admin only)"""
     serializer_class = SendNotificationSerializer
     permission_classes = [permissions.IsAdminUser]
-    
-    @swagger_auto_schema(
-        operation_summary="Send notification (Admin)",
-        operation_description="Send a custom push notification. Admin only.",
-        tags=['Admin - Notifications'],
-        security=[{'Bearer': []}],
-        request_body=SendNotificationSerializer,
-        responses={201: 'Notification sent successfully', 403: 'Admin access required'}
-    )
-    def post(self, request, *args, **kwargs):
-        return super().post(request, *args, **kwargs)
     
     def create(self, request, *args, **kwargs):
         serializer = self.get_serializer(data=request.data)
