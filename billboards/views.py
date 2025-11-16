@@ -3,6 +3,8 @@ from .models import Billboard, Wishlist, Lead, View
 from .serializers import BillboardSerializer, BillboardListSerializer, WishlistSerializer
 from .filters import BillboardFilter
 from rest_framework.views import APIView
+from drf_yasg.utils import swagger_auto_schema
+from drf_yasg import openapi
 from rest_framework.parsers import MultiPartParser, FormParser
 from rest_framework.response import Response
 from django.conf import settings
@@ -27,6 +29,12 @@ import logging
 logger = logging.getLogger(__name__)
 
 class BillboardListCreateView(generics.ListCreateAPIView):
+    """
+    List all billboards or create a new billboard.
+    
+    - **GET**: Returns a list of approved and active billboards
+    - **POST**: Creates a new billboard (requires authentication)
+    """
     # OPTIMIZED: Enhanced queryset with select_related and only for better performance
     def get_queryset(self):
         # Only show approved and active billboards for public map
@@ -59,6 +67,81 @@ class BillboardListCreateView(generics.ListCreateAPIView):
     search_fields = ['city', 'description', 'company_name', 'road_name']
     ordering_fields = ['created_at', 'price_range', 'city', 'views']
     ordering = ['-created_at']
+    
+    @swagger_auto_schema(
+        operation_summary="List all billboards",
+        operation_description="Get a list of all approved and active billboards. Supports filtering, searching, and pagination.",
+        tags=['Billboards'],
+        manual_parameters=[
+            openapi.Parameter('ne_lat', openapi.IN_QUERY, description="Northeast latitude (for map bounds)", type=openapi.TYPE_NUMBER),
+            openapi.Parameter('ne_lng', openapi.IN_QUERY, description="Northeast longitude (for map bounds)", type=openapi.TYPE_NUMBER),
+            openapi.Parameter('sw_lat', openapi.IN_QUERY, description="Southwest latitude (for map bounds)", type=openapi.TYPE_NUMBER),
+            openapi.Parameter('sw_lng', openapi.IN_QUERY, description="Southwest longitude (for map bounds)", type=openapi.TYPE_NUMBER),
+            openapi.Parameter('zoom', openapi.IN_QUERY, description="Map zoom level (for clustering)", type=openapi.TYPE_INTEGER),
+            openapi.Parameter('cluster', openapi.IN_QUERY, description="Enable clustering (true/false)", type=openapi.TYPE_BOOLEAN),
+            openapi.Parameter('ooh_media_type', openapi.IN_QUERY, description="Filter by media type", type=openapi.TYPE_STRING),
+            openapi.Parameter('search', openapi.IN_QUERY, description="Search in city, description, company_name, road_name", type=openapi.TYPE_STRING),
+        ],
+        responses={200: BillboardListSerializer(many=True)}
+    )
+    def get(self, request, *args, **kwargs):
+        return super().get(request, *args, **kwargs)
+    
+    @swagger_auto_schema(
+        operation_summary="Create a new billboard",
+        operation_description="Create a new billboard. Requires authentication. New billboards are set to 'pending' status.",
+        tags=['Billboards'],
+        request_body=BillboardSerializer,
+        responses={
+            201: BillboardSerializer,
+            400: 'Bad Request',
+            401: 'Unauthorized'
+        }
+    )
+    def post(self, request, *args, **kwargs):
+        return super().post(request, *args, **kwargs)
+
+    def paginate_queryset(self, queryset):
+        """
+        Disable pagination when map bounds are provided (for map views).
+        Map views need all billboards in the visible area, not paginated results.
+        """
+        # Check if map bounds are provided
+        ne_lat = self.request.query_params.get('ne_lat')
+        ne_lng = self.request.query_params.get('ne_lng')
+        sw_lat = self.request.query_params.get('sw_lat')
+        sw_lng = self.request.query_params.get('sw_lng')
+        
+        # If map bounds are provided, disable pagination (return all results)
+        if ne_lat and ne_lng and sw_lat and sw_lng:
+            return None  # No pagination for map views
+        
+        # Otherwise, use normal pagination for list views
+        return super().paginate_queryset(queryset)
+
+    def list(self, request, *args, **kwargs):
+        """
+        Override list to handle non-paginated responses for map views.
+        """
+        queryset = self.filter_queryset(self.get_queryset())
+        
+        # Check if pagination should be disabled (map bounds provided)
+        page = self.paginate_queryset(queryset)
+        if page is None:
+            # No pagination - return all results (for map views)
+            serializer = self.get_serializer(queryset, many=True)
+            return Response({
+                'count': queryset.count(),
+                'results': serializer.data
+            })
+        
+        # Paginated response (for list views)
+        if page is not None:
+            serializer = self.get_serializer(page, many=True)
+            return self.get_paginated_response(serializer.data)
+        
+        serializer = self.get_serializer(queryset, many=True)
+        return Response(serializer.data)
 
     def perform_create(self, serializer):
         user = self.request.user if self.request.user.is_authenticated else None
@@ -76,6 +159,13 @@ class BillboardListCreateView(generics.ListCreateAPIView):
         return super().get(request, *args, **kwargs)
 
 class BillboardDetailView(generics.RetrieveUpdateDestroyAPIView):
+    """
+    Retrieve, update or delete a billboard.
+    
+    - **GET**: Get billboard details
+    - **PUT/PATCH**: Update billboard (owner only)
+    - **DELETE**: Delete billboard (owner only)
+    """
     # OPTIMIZED: Enhanced queryset for single billboard view
     def get_queryset(self):
         return Billboard.objects.select_related('user')\
@@ -91,6 +181,40 @@ class BillboardDetailView(generics.RetrieveUpdateDestroyAPIView):
     
     serializer_class = BillboardSerializer
     permission_classes = [permissions.AllowAny]
+    
+    @swagger_auto_schema(
+        operation_summary="Get billboard details",
+        tags=['Billboards'],
+        responses={200: BillboardSerializer}
+    )
+    def get(self, request, *args, **kwargs):
+        return super().get(request, *args, **kwargs)
+    
+    @swagger_auto_schema(
+        operation_summary="Update billboard",
+        tags=['Billboards'],
+        request_body=BillboardSerializer,
+        responses={200: BillboardSerializer}
+    )
+    def put(self, request, *args, **kwargs):
+        return super().put(request, *args, **kwargs)
+    
+    @swagger_auto_schema(
+        operation_summary="Partially update billboard",
+        tags=['Billboards'],
+        request_body=BillboardSerializer,
+        responses={200: BillboardSerializer}
+    )
+    def patch(self, request, *args, **kwargs):
+        return super().patch(request, *args, **kwargs)
+    
+    @swagger_auto_schema(
+        operation_summary="Delete billboard",
+        tags=['Billboards'],
+        responses={204: 'No Content'}
+    )
+    def delete(self, request, *args, **kwargs):
+        return super().delete(request, *args, **kwargs)
 
     def update(self, request, *args, **kwargs):
         response = super().update(request, *args, **kwargs)
@@ -112,8 +236,21 @@ class BillboardDetailView(generics.RetrieveUpdateDestroyAPIView):
         pass
 
 class MyBillboardsView(generics.ListAPIView):
+    """
+    Get all billboards created by the authenticated user.
+    Includes all statuses (pending, approved, rejected).
+    """
     serializer_class = BillboardListSerializer
     permission_classes = [permissions.IsAuthenticated]
+    
+    @swagger_auto_schema(
+        operation_summary="Get my billboards",
+        operation_description="Get all billboards created by the authenticated user",
+        tags=['Billboards'],
+        responses={200: BillboardListSerializer(many=True)}
+    )
+    def get(self, request, *args, **kwargs):
+        return super().get(request, *args, **kwargs)
     pagination_class = CustomPagination
     filter_backends = [DjangoFilterBackend, SearchFilter, OrderingFilter]
     filterset_fields = ['city', 'ooh_media_type', 'type', 'is_active', 'approval_status']  # Added approval_status filter
@@ -138,9 +275,37 @@ class MyBillboardsView(generics.ListAPIView):
 
 
 class WishlistView(generics.ListCreateAPIView):
-    """View for managing user's wishlist"""
+    """
+    View for managing user's wishlist
+    
+    - **GET**: Get all billboards in user's wishlist
+    - **POST**: Add a billboard to wishlist
+    """
     serializer_class = WishlistSerializer
     permission_classes = [permissions.IsAuthenticated]
+    
+    @swagger_auto_schema(
+        operation_summary="Get my wishlist",
+        tags=['Wishlist'],
+        responses={200: WishlistSerializer(many=True)}
+    )
+    def get(self, request, *args, **kwargs):
+        return super().get(request, *args, **kwargs)
+    
+    @swagger_auto_schema(
+        operation_summary="Add to wishlist",
+        tags=['Wishlist'],
+        request_body=openapi.Schema(
+            type=openapi.TYPE_OBJECT,
+            required=['billboard_id'],
+            properties={
+                'billboard_id': openapi.Schema(type=openapi.TYPE_INTEGER, description='Billboard ID to add')
+            }
+        ),
+        responses={201: WishlistSerializer}
+    )
+    def post(self, request, *args, **kwargs):
+        return super().post(request, *args, **kwargs)
     pagination_class = CustomPagination
     filter_backends = [DjangoFilterBackend, SearchFilter, OrderingFilter]
     search_fields = ['billboard__city', 'billboard__description', 'billboard__company_name']
@@ -218,14 +383,37 @@ class WishlistToggleView(APIView):
 
 
 # Updated Lead Tracking View with Duplicate Prevention
+@swagger_auto_schema(
+    method='post',
+    operation_summary="Track billboard lead",
+    operation_description="Track a lead (phone/WhatsApp click) for a billboard. Owner leads are not counted. Duplicate leads are prevented.",
+    tags=['Analytics & Tracking'],
+    responses={
+        200: openapi.Response('Lead tracked or already exists', schema=openapi.Schema(
+            type=openapi.TYPE_OBJECT,
+            properties={
+                'message': openapi.Schema(type=openapi.TYPE_STRING),
+                'billboard_id': openapi.Schema(type=openapi.TYPE_INTEGER),
+                'current_leads': openapi.Schema(type=openapi.TYPE_INTEGER),
+                'owner_lead': openapi.Schema(type=openapi.TYPE_BOOLEAN),
+                'duplicate': openapi.Schema(type=openapi.TYPE_BOOLEAN),
+            }
+        )),
+        404: 'Billboard not found'
+    }
+)
 @api_view(['POST'])
 def track_billboard_lead(request, billboard_id):
-    """Track a lead for a specific billboard (phone or WhatsApp) - Only 1 lead per IP per billboard"""
+    """
+    Track a lead for a specific billboard (phone or WhatsApp click)
+    Owner's leads are never counted - simple and reliable check
+    """
     try:
         billboard = Billboard.objects.get(id=billboard_id)
         
-        # Check if the current user is the billboard owner
-        if request.user.is_authenticated and billboard.user == request.user:
+        # IMPORTANT: Check if the current user is the billboard owner
+        # This prevents owners from inflating their own lead counts
+        if billboard.user and request.user.is_authenticated and billboard.user.id == request.user.id:
             return Response({
                 'message': 'Lead not tracked - owner viewing own billboard',
                 'billboard_id': billboard_id,
@@ -236,21 +424,31 @@ def track_billboard_lead(request, billboard_id):
         # Get client IP address
         x_forwarded_for = request.META.get('HTTP_X_FORWARDED_FOR')
         if x_forwarded_for:
-            user_ip = x_forwarded_for.split(',')[0]
+            user_ip = x_forwarded_for.split(',')[0].strip()
         else:
             user_ip = request.META.get('REMOTE_ADDR')
         
         # Get user agent
         user_agent = request.META.get('HTTP_USER_AGENT', '')
         
-        # Check if lead already exists for this IP and billboard
-        lead_exists = Lead.objects.filter(
-            billboard=billboard,
-            user_ip=user_ip
-        ).exists()
+        # Check for duplicate leads (same user or same IP for same billboard)
+        lead_exists = False
+        if request.user.is_authenticated:
+            # Check by authenticated user
+            lead_exists = Lead.objects.filter(
+                billboard=billboard,
+                user=request.user
+            ).exists()
+        else:
+            # Check by IP for unauthenticated users
+            if user_ip:
+                lead_exists = Lead.objects.filter(
+                    billboard=billboard,
+                    user_ip=user_ip
+                ).exists()
         
         if lead_exists:
-            # Lead already exists, don't increment counter
+            # Lead already tracked, don't increment counter
             return Response({
                 'message': 'Lead already tracked for this billboard',
                 'billboard_id': billboard_id,
@@ -261,16 +459,16 @@ def track_billboard_lead(request, billboard_id):
         # Create new lead record
         Lead.objects.create(
             billboard=billboard,
+            user=request.user if request.user.is_authenticated else None,
             user_ip=user_ip,
             user_agent=user_agent
         )
         
-        # Increment the leads counter
+        # Increment the leads counter atomically
         billboard.increment_leads()
         
-        # WebSocket notifications removed
-        
-        logger.info(f"New lead tracked for billboard {billboard_id} from IP {user_ip}")
+        user_info = request.user.email if request.user.is_authenticated else user_ip
+        logger.info(f"New lead tracked for billboard {billboard_id} from {user_info}")
         
         return Response({
             'message': 'Lead tracked successfully',
@@ -381,17 +579,37 @@ def toggle_billboard_active(request, billboard_id):
         }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
 # UPDATED: View tracking endpoint with duplicate prevention
+@swagger_auto_schema(
+    method='post',
+    operation_summary="Track billboard view",
+    operation_description="Track a view for a billboard. Owner views are not counted. Duplicate views are prevented.",
+    tags=['Analytics & Tracking'],
+    responses={
+        200: openapi.Response('View tracked or already exists', schema=openapi.Schema(
+            type=openapi.TYPE_OBJECT,
+            properties={
+                'message': openapi.Schema(type=openapi.TYPE_STRING),
+                'billboard_id': openapi.Schema(type=openapi.TYPE_INTEGER),
+                'current_views': openapi.Schema(type=openapi.TYPE_INTEGER),
+                'owner_view': openapi.Schema(type=openapi.TYPE_BOOLEAN),
+                'duplicate': openapi.Schema(type=openapi.TYPE_BOOLEAN),
+            }
+        )),
+        404: 'Billboard not found'
+    }
+)
 @api_view(['POST'])
 def track_billboard_view(request, billboard_id):
     """
     Track a view for a specific billboard
-    Excludes views from the billboard owner and prevents duplicates
+    Owner's views are never counted - simple and reliable check
     """
     try:
         billboard = Billboard.objects.get(id=billboard_id)
         
-        # Check if the current user is the billboard owner
-        if request.user.is_authenticated and billboard.user == request.user:
+        # IMPORTANT: Check if the current user is the billboard owner
+        # This prevents owners from inflating their own view counts
+        if billboard.user and request.user.is_authenticated and billboard.user.id == request.user.id:
             return Response({
                 'message': 'View not tracked - owner viewing own billboard',
                 'billboard_id': billboard_id,
@@ -402,21 +620,31 @@ def track_billboard_view(request, billboard_id):
         # Get client IP address
         x_forwarded_for = request.META.get('HTTP_X_FORWARDED_FOR')
         if x_forwarded_for:
-            user_ip = x_forwarded_for.split(',')[0]
+            user_ip = x_forwarded_for.split(',')[0].strip()
         else:
             user_ip = request.META.get('REMOTE_ADDR')
         
         # Get user agent
         user_agent = request.META.get('HTTP_USER_AGENT', '')
         
-        # Check if view already exists for this IP and billboard
-        view_exists = View.objects.filter(
-            billboard=billboard,
-            user_ip=user_ip
-        ).exists()
+        # Check for duplicate views (same user or same IP for same billboard)
+        view_exists = False
+        if request.user.is_authenticated:
+            # Check by authenticated user
+            view_exists = View.objects.filter(
+                billboard=billboard,
+                user=request.user
+            ).exists()
+        else:
+            # Check by IP for unauthenticated users
+            if user_ip:
+                view_exists = View.objects.filter(
+                    billboard=billboard,
+                    user_ip=user_ip
+                ).exists()
         
         if view_exists:
-            # View already exists, don't increment counter
+            # View already tracked, don't increment counter
             return Response({
                 'message': 'View already tracked for this billboard',
                 'billboard_id': billboard_id,
@@ -428,16 +656,16 @@ def track_billboard_view(request, billboard_id):
         # Create new view record
         View.objects.create(
             billboard=billboard,
+            user=request.user if request.user.is_authenticated else None,
             user_ip=user_ip,
             user_agent=user_agent
         )
         
-        # Increment the views counter
+        # Increment the views counter atomically
         billboard.increment_views()
         
-        # WebSocket notifications removed
-        
-        logger.info(f"New view tracked for billboard {billboard_id} from IP {user_ip}")
+        user_info = request.user.email if request.user.is_authenticated else user_ip
+        logger.info(f"New view tracked for billboard {billboard_id} from {user_info}")
         
         return Response({
             'message': 'View tracked successfully',
@@ -471,6 +699,19 @@ class HealthCheckView(APIView):
 
 # Billboard Approval Workflow Endpoints
 
+@swagger_auto_schema(
+    method='post',
+    operation_summary="Approve billboard",
+    operation_description="Approve a pending billboard. Admin only.",
+    tags=['Admin - Billboard Approval'],
+    security=[{'Bearer': []}],
+    responses={
+        200: BillboardSerializer,
+        400: 'Billboard is already approved/rejected',
+        403: 'Admin access required',
+        404: 'Billboard not found'
+    }
+)
 @api_view(['POST'])
 @permission_classes([IsAuthenticated, IsAdminUser])
 def approve_billboard(request, billboard_id):
@@ -506,6 +747,25 @@ def approve_billboard(request, billboard_id):
         }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
 
+@swagger_auto_schema(
+    method='post',
+    operation_summary="Reject billboard",
+    operation_description="Reject a pending billboard. Admin only.",
+    tags=['Admin - Billboard Approval'],
+    security=[{'Bearer': []}],
+    request_body=openapi.Schema(
+        type=openapi.TYPE_OBJECT,
+        properties={
+            'rejection_reason': openapi.Schema(type=openapi.TYPE_STRING, description='Reason for rejection')
+        }
+    ),
+    responses={
+        200: BillboardSerializer,
+        400: 'Billboard is already approved/rejected',
+        403: 'Admin access required',
+        404: 'Billboard not found'
+    }
+)
 @api_view(['POST'])
 @permission_classes([IsAuthenticated, IsAdminUser])
 def reject_billboard(request, billboard_id):
@@ -545,6 +805,26 @@ def reject_billboard(request, billboard_id):
         }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
 
+@swagger_auto_schema(
+    method='get',
+    operation_summary="Get pending billboards",
+    operation_description="Get all pending billboards awaiting admin review",
+    tags=['Admin - Billboard Approval'],
+    security=[{'Bearer': []}],
+    responses={
+        200: openapi.Response('List of pending billboards', schema=openapi.Schema(
+            type=openapi.TYPE_OBJECT,
+            properties={
+                'results': openapi.Schema(
+                    type=openapi.TYPE_ARRAY,
+                    items=openapi.Items(type=openapi.TYPE_OBJECT)
+                ),
+                'count': openapi.Schema(type=openapi.TYPE_INTEGER)
+            }
+        )),
+        403: 'Admin access required'
+    }
+)
 @api_view(['GET'])
 @permission_classes([IsAuthenticated, IsAdminUser])
 def get_pending_billboards(request):

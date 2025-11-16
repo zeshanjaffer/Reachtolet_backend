@@ -5,6 +5,8 @@ from .models import User
 from .serializers import UserSerializer, RegisterSerializer, UserProfileUpdateSerializer
 from rest_framework.permissions import AllowAny
 from rest_framework.views import APIView
+from drf_yasg.utils import swagger_auto_schema
+from drf_yasg import openapi
 from rest_framework_simplejwt.tokens import RefreshToken
 from rest_framework.decorators import api_view, permission_classes
 from rest_framework.parsers import MultiPartParser, FormParser
@@ -20,6 +22,13 @@ logger = logging.getLogger(__name__)
 
 GOOGLE_CLIENT_ID = "971707519453-srarmkadprdmpgv385312cgfckok9eku.apps.googleusercontent.com"
 
+@swagger_auto_schema(
+    method='get',
+    operation_summary="Validate JWT token",
+    tags=['Users & Authentication'],
+    security=[{'Bearer': []}],
+    responses={200: 'Token is valid', 401: 'Token is invalid'}
+)
 @api_view(['GET'])
 @permission_classes([permissions.IsAuthenticated])
 def validate_token(request):
@@ -33,6 +42,12 @@ def validate_token(request):
         "email": request.user.email
     }, status=status.HTTP_200_OK)
 
+@swagger_auto_schema(
+    method='get',
+    operation_summary="Get country codes",
+    tags=['Users & Authentication'],
+    responses={200: 'List of country codes'}
+)
 @api_view(['GET'])
 @permission_classes([AllowAny])
 def get_country_codes(request):
@@ -63,9 +78,32 @@ def get_country_codes(request):
         }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
 class RegisterView(generics.CreateAPIView):
+    """
+    Register a new user account.
+    Returns JWT tokens upon successful registration.
+    """
     queryset = User.objects.all()
     permission_classes = (AllowAny,)
     serializer_class = RegisterSerializer
+    
+    @swagger_auto_schema(
+        operation_summary="Register new user",
+        tags=['Users & Authentication'],
+        request_body=RegisterSerializer,
+        responses={
+            201: openapi.Response('User registered successfully', schema=openapi.Schema(
+                type=openapi.TYPE_OBJECT,
+                properties={
+                    'user': openapi.Schema(type=openapi.TYPE_OBJECT),
+                    'refresh': openapi.Schema(type=openapi.TYPE_STRING),
+                    'access': openapi.Schema(type=openapi.TYPE_STRING),
+                    'message': openapi.Schema(type=openapi.TYPE_STRING),
+                }
+            ))
+        }
+    )
+    def post(self, request, *args, **kwargs):
+        return super().post(request, *args, **kwargs)
 
     def create(self, request, *args, **kwargs):
         serializer = self.get_serializer(data=request.data)
@@ -82,6 +120,11 @@ class RegisterView(generics.CreateAPIView):
         }, status=status.HTTP_201_CREATED)
 
 class UserProfileView(generics.RetrieveUpdateAPIView):
+    """
+    Get or update user profile.
+    - **GET**: Get current user profile
+    - **PUT/PATCH**: Update user profile
+    """
     permission_classes = [permissions.IsAuthenticated]
 
     def get_object(self):
@@ -91,6 +134,25 @@ class UserProfileView(generics.RetrieveUpdateAPIView):
         if self.request.method == 'PUT':
             return UserProfileUpdateSerializer
         return UserSerializer
+    
+    @swagger_auto_schema(
+        operation_summary="Get my profile",
+        tags=['Users & Authentication'],
+        security=[{'Bearer': []}],
+        responses={200: UserSerializer}
+    )
+    def get(self, request, *args, **kwargs):
+        return super().get(request, *args, **kwargs)
+    
+    @swagger_auto_schema(
+        operation_summary="Update my profile",
+        tags=['Users & Authentication'],
+        security=[{'Bearer': []}],
+        request_body=UserProfileUpdateSerializer,
+        responses={200: UserSerializer}
+    )
+    def put(self, request, *args, **kwargs):
+        return super().put(request, *args, **kwargs)
 
 class GoogleLoginView(APIView):
     permission_classes = (AllowAny,)

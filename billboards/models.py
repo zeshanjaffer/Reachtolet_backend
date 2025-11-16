@@ -184,6 +184,13 @@ class Lead(models.Model):
     billboard = models.ForeignKey(
         Billboard, on_delete=models.CASCADE, related_name='lead_interactions'
     )
+    user = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        help_text="User who clicked lead (if authenticated)"
+    )
     user_ip = models.GenericIPAddressField(
         null=True, 
         blank=True,
@@ -200,13 +207,14 @@ class Lead(models.Model):
         ordering = ['-created_at']
         indexes = [
             models.Index(fields=['billboard', 'user_ip']),
+            models.Index(fields=['billboard', 'user']),
             models.Index(fields=['user_ip', 'created_at']),
+            models.Index(fields=['billboard', 'user', 'created_at']),
         ]
-        # Prevent duplicate leads from same IP for same billboard
-        unique_together = ['billboard', 'user_ip']
 
     def __str__(self):
-        return f"{self.billboard.city} - Lead from {self.user_ip} - {self.created_at.strftime('%Y-%m-%d %H:%M')}"
+        user_info = self.user.email if self.user else f"IP {self.user_ip}"
+        return f"{self.billboard.city} - Lead from {user_info} - {self.created_at.strftime('%Y-%m-%d %H:%M')}"
 
 
 class View(models.Model):
@@ -214,6 +222,13 @@ class View(models.Model):
     billboard = models.ForeignKey(
         Billboard, on_delete=models.CASCADE, related_name='view_interactions'
     )
+    user = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        help_text="User who viewed (if authenticated)"
+    )
     user_ip = models.GenericIPAddressField(
         null=True, 
         blank=True,
@@ -230,10 +245,11 @@ class View(models.Model):
         ordering = ['-created_at']
         indexes = [
             models.Index(fields=['billboard', 'user_ip']),
+            models.Index(fields=['billboard', 'user']),
             models.Index(fields=['user_ip', 'created_at']),
+            models.Index(fields=['billboard', 'user', 'created_at']),
         ]
-        # Prevent duplicate views from same IP for same billboard
-        unique_together = ['billboard', 'user_ip']
 
     def __str__(self):
-        return f"{self.billboard.city} - View from {self.user_ip} - {self.created_at.strftime('%Y-%m-%d %H:%M')}"
+        user_info = self.user.email if self.user else f"IP {self.user_ip}"
+        return f"{self.billboard.city} - View from {user_info} - {self.created_at.strftime('%Y-%m-%d %H:%M')}"
