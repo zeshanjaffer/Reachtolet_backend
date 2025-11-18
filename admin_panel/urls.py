@@ -2,6 +2,11 @@ from django.urls import path
 from . import views
 
 urlpatterns = [
+    # Admin Authentication
+    path('admin/auth/login/', views.admin_login, name='admin-login'),
+    path('admin/auth/me/', views.get_current_user, name='admin-get-current-user'),
+    path('admin/auth/logout/', views.admin_logout, name='admin-logout'),
+    
     # Campaign Management
     path('admin/campaigns/', views.CampaignListCreateView.as_view(), name='admin-campaign-list-create'),
     path('admin/campaigns/<uuid:pk>/', views.CampaignDetailView.as_view(), name='admin-campaign-detail'),

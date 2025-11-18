@@ -2,10 +2,12 @@ from rest_framework import generics, status, permissions
 from rest_framework.decorators import api_view, permission_classes
 from rest_framework.response import Response
 from rest_framework.pagination import PageNumberPagination
+from rest_framework.permissions import AllowAny
+from rest_framework_simplejwt.tokens import RefreshToken
 from django.db.models import Q, Count, F
 from django.utils import timezone
 from django.db import transaction
-from django.contrib.auth import get_user_model
+from django.contrib.auth import get_user_model, authenticate
 from django.core.paginator import Paginator
 from datetime import datetime, timedelta
 import logging
@@ -502,3 +504,99 @@ def _send_campaign_notifications(campaign, recipients=None):
         analytics.calculate_rates()
     
     return success_count, failed_count
+
+# ==================== ADMIN AUTHENTICATION ====================
+
+@api_view(['POST'])
+@permission_classes([AllowAny])
+def admin_login(request):
+    """
+    Admin login endpoint for Next.js admin panel
+    """
+    try:
+        email = request.data.get('email')
+        password = request.data.get('password')
+        
+        if not email or not password:
+            return Response({
+                'error': 'Email and password are required'
+            }, status=status.HTTP_400_BAD_REQUEST)
+        
+        # Authenticate user
+        user = authenticate(username=email, password=password)
+        
+        if not user:
+            return Response({
+                'error': 'Invalid credentials'
+            }, status=status.HTTP_401_UNAUTHORIZED)
+        
+        # Check if user is staff (admin)
+        if not user.is_staff:
+            return Response({
+                'error': 'Access denied. Admin privileges required.'
+            }, status=status.HTTP_403_FORBIDDEN)
+        
+        # Generate JWT tokens
+        refresh = RefreshToken.for_user(user)
+        
+        return Response({
+            'user': {
+                'id': user.id,
+                'email': user.email,
+                'name': user.name or user.email,
+                'is_staff': user.is_staff,
+                'is_superuser': user.is_superuser,
+            },
+            'access': str(refresh.access_token),
+            'refresh': str(refresh),
+            'message': 'Login successful'
+        }, status=status.HTTP_200_OK)
+        
+    except Exception as e:
+        logger.error(f"Admin login error: {str(e)}")
+        return Response({
+            'error': 'Login failed'
+        }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+@api_view(['GET'])
+@permission_classes([permissions.IsAuthenticated])
+def get_current_user(request):
+    """
+    Get current authenticated user info
+    """
+    try:
+        user = request.user
+        return Response({
+            'user': {
+                'id': user.id,
+                'email': user.email,
+                'name': user.name or user.email,
+                'is_staff': user.is_staff,
+                'is_superuser': user.is_superuser,
+            }
+        }, status=status.HTTP_200_OK)
+        
+    except Exception as e:
+        logger.error(f"Get current user error: {str(e)}")
+        return Response({
+            'error': 'Failed to get user info'
+        }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+@api_view(['POST'])
+@permission_classes([permissions.IsAuthenticated])
+def admin_logout(request):
+    """
+    Admin logout endpoint
+    """
+    try:
+        # In JWT, logout is typically handled client-side by removing tokens
+        # But we can add any server-side cleanup here if needed
+        return Response({
+            'message': 'Logout successful'
+        }, status=status.HTTP_200_OK)
+        
+    except Exception as e:
+        logger.error(f"Admin logout error: {str(e)}")
+        return Response({
+            'error': 'Logout failed'
+        }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)

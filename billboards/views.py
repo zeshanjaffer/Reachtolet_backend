@@ -19,6 +19,8 @@ from rest_framework.decorators import api_view, permission_classes
 from rest_framework.permissions import IsAuthenticated, IsAdminUser
 from django.db.models import Prefetch
 from django.utils import timezone
+from drf_yasg.utils import swagger_auto_schema
+from drf_yasg import openapi
 # WebSocket imports removed
 import os
 import uuid
@@ -538,30 +540,132 @@ class HealthCheckView(APIView):
 
 # Billboard Approval Workflow Endpoints
 
+@swagger_auto_schema(
+    method='post',
+    operation_description="""
+    Approve or reject a pending billboard.
+    
+    This unified endpoint replaces the separate `/approve/` and `/reject/` endpoints.
+    Use the `action` field to specify whether to approve or reject the billboard.
+    
+    **Requirements:**
+    - Admin authentication required
+    - Billboard must be in 'pending' status
+    - Action must be either 'approve' or 'reject'
+    """,
+    request_body=openapi.Schema(
+        type=openapi.TYPE_OBJECT,
+        required=['action'],
+        properties={
+            'action': openapi.Schema(
+                type=openapi.TYPE_STRING,
+                enum=['approve', 'reject'],
+                description='Action to perform: "approve" or "reject"',
+                example='approve'
+            ),
+            'rejection_reason': openapi.Schema(
+                type=openapi.TYPE_STRING,
+                description='Optional reason for rejection (recommended when action is "reject")',
+                example='Poor image quality or incomplete information'
+            )
+        }
+    ),
+    responses={
+        200: openapi.Response(
+            description='Success',
+            examples={
+                'application/json': {
+                    'approve': {
+                        'message': 'Billboard approved successfully',
+                        'billboard': {
+                            'id': 1,
+                            'approval_status': 'approved',
+                            'approved_at': '2025-01-26T15:00:00Z',
+                            'approved_by_username': 'admin@example.com'
+                        }
+                    },
+                    'reject': {
+                        'message': 'Billboard rejected successfully',
+                        'billboard': {
+                            'id': 1,
+                            'approval_status': 'rejected',
+                            'rejected_at': '2025-01-26T15:00:00Z',
+                            'rejected_by_username': 'admin@example.com',
+                            'rejection_reason': 'Poor image quality'
+                        }
+                    }
+                }
+            }
+        ),
+        400: openapi.Response(
+            description='Bad Request',
+            examples={
+                'application/json': {
+                    'error': 'Invalid action. Must be "approve" or "reject"'
+                }
+            }
+        ),
+        403: openapi.Response(
+            description='Forbidden - Admin access required',
+            examples={
+                'application/json': {
+                    'error': 'You do not have permission to perform this action.'
+                }
+            }
+        ),
+        404: openapi.Response(
+            description='Billboard not found',
+            examples={
+                'application/json': {
+                    'error': 'Billboard not found'
+                }
+            }
+        )
+    },
+    tags=['Billboard Approval'],
+    operation_summary='Update billboard approval status (Approve/Reject)'
+)
 @api_view(['POST'])
 @permission_classes([IsAuthenticated, IsAdminUser])
-def approve_billboard(request, billboard_id):
+def update_billboard_approval_status(request, billboard_id):
     """
-    Approve a pending billboard
-    URL: api/billboards/{id}/approve/
-    Method: POST
-    Permission: Admin only
+    Approve or reject a pending billboard
+    
+    This unified endpoint replaces the separate approve and reject endpoints.
+    Use the action field in the request body to specify the desired action.
     """
     try:
         billboard = Billboard.objects.get(id=billboard_id)
         
         if billboard.approval_status != 'pending':
             return Response({
-                'error': f'Billboard is already {billboard.approval_status}'
+                'error': f'Billboard is already {billboard.approval_status}. Only pending billboards can be approved or rejected.'
             }, status=status.HTTP_400_BAD_REQUEST)
         
-        # Update billboard status using the model method (signal will be triggered automatically)
-        billboard.approve(request.user)
+        # Get action from request body
+        action = request.data.get('action', '').lower()
         
-        return Response({
-            'message': 'Billboard approved successfully',
-            'billboard': BillboardSerializer(billboard).data
-        }, status=status.HTTP_200_OK)
+        if action not in ['approve', 'reject']:
+            return Response({
+                'error': 'Invalid action. Must be "approve" or "reject"'
+            }, status=status.HTTP_400_BAD_REQUEST)
+        
+        # Handle approve action
+        if action == 'approve':
+            billboard.approve(request.user)
+            return Response({
+                'message': 'Billboard approved successfully',
+                'billboard': BillboardSerializer(billboard).data
+            }, status=status.HTTP_200_OK)
+        
+        # Handle reject action
+        elif action == 'reject':
+            rejection_reason = request.data.get('rejection_reason', '')
+            billboard.reject(request.user, rejection_reason)
+            return Response({
+                'message': 'Billboard rejected successfully',
+                'billboard': BillboardSerializer(billboard).data
+            }, status=status.HTTP_200_OK)
         
     except Billboard.DoesNotExist:
         return Response({
@@ -569,57 +673,59 @@ def approve_billboard(request, billboard_id):
         }, status=status.HTTP_404_NOT_FOUND)
     except Exception as e:
         return Response({
-            'error': f'Failed to approve billboard: {str(e)}'
+            'error': f'Failed to update billboard approval status: {str(e)}'
         }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
 
-@api_view(['POST'])
-@permission_classes([IsAuthenticated, IsAdminUser])
-def reject_billboard(request, billboard_id):
-    """
-    Reject a pending billboard
-    URL: api/billboards/{id}/reject/
-    Method: POST
-    Permission: Admin only
-    Body: { "rejection_reason": "Optional reason for rejection" }
-    """
-    try:
-        billboard = Billboard.objects.get(id=billboard_id)
-        
-        if billboard.approval_status != 'pending':
-            return Response({
-                'error': f'Billboard is already {billboard.approval_status}'
-            }, status=status.HTTP_400_BAD_REQUEST)
-        
-        # Get rejection reason from request
-        rejection_reason = request.data.get('rejection_reason', '')
-        
-        # Update billboard status using the model method (signal will be triggered automatically)
-        billboard.reject(request.user, rejection_reason)
-        
-        return Response({
-            'message': 'Billboard rejected successfully',
-            'billboard': BillboardSerializer(billboard).data
-        }, status=status.HTTP_200_OK)
-        
-    except Billboard.DoesNotExist:
-        return Response({
-            'error': 'Billboard not found'
-        }, status=status.HTTP_404_NOT_FOUND)
-    except Exception as e:
-        return Response({
-            'error': f'Failed to reject billboard: {str(e)}'
-        }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
-
-
+@swagger_auto_schema(
+    method='get',
+    operation_description="""
+    Get all pending billboards for admin review.
+    
+    Returns a list of all billboards that are awaiting approval.
+    Only billboards with 'pending' approval status are returned.
+    
+    **Requirements:**
+    - Admin authentication required
+    """,
+    responses={
+        200: openapi.Response(
+            description='Success',
+            examples={
+                'application/json': {
+                    'results': [
+                        {
+                            'id': 1,
+                            'city': 'Karachi',
+                            'description': 'Premium location billboard',
+                            'approval_status': 'pending',
+                            'user_name': 'John Doe',
+                            'created_at': '2025-01-26T14:30:00Z'
+                        }
+                    ],
+                    'count': 1
+                }
+            }
+        ),
+        403: openapi.Response(
+            description='Forbidden - Admin access required',
+            examples={
+                'application/json': {
+                    'error': 'You do not have permission to perform this action.'
+                }
+            }
+        )
+    },
+    tags=['Billboard Approval'],
+    operation_summary='Get pending billboards for review'
+)
 @api_view(['GET'])
 @permission_classes([IsAuthenticated, IsAdminUser])
 def get_pending_billboards(request):
     """
     Get all pending billboards for admin review
-    URL: api/billboards/pending/
-    Method: GET
-    Permission: Admin only
+    
+    Returns a list of billboards awaiting approval.
     """
     try:
         pending_billboards = Billboard.objects.filter(

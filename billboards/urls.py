@@ -11,8 +11,7 @@ from .views import (
     track_billboard_view,  # NEW: Import the view tracking function
     toggle_billboard_active,  # NEW: Import the toggle active function
     # Approval workflow endpoints
-    approve_billboard,
-    reject_billboard,
+    update_billboard_approval_status,
     get_pending_billboards
 )
 
@@ -28,8 +27,7 @@ urlpatterns = [
     
     # Approval workflow endpoints (Admin only)
     path('pending/', get_pending_billboards, name='get-pending-billboards'),
-    path('<int:billboard_id>/approve/', approve_billboard, name='approve-billboard'),
-    path('<int:billboard_id>/reject/', reject_billboard, name='reject-billboard'),
+    path('<int:billboard_id>/approval-status/', update_billboard_approval_status, name='update-billboard-approval-status'),
     
     # Wishlist endpoints
     path('wishlist/', WishlistView.as_view(), name='wishlist'),
