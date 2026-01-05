@@ -28,9 +28,33 @@ class User(AbstractUser):
     
     name = models.CharField(max_length=150, blank=True, null=True)
     profile_image = models.ImageField(upload_to='profile_images/', null=True, blank=True)
+    
+    # User type field for role-based access control
+    USER_TYPE_CHOICES = [
+        ('advertiser', 'Advertiser'),
+        ('media_owner', 'Media Owner'),
+    ]
+    user_type = models.CharField(
+        max_length=20,
+        choices=USER_TYPE_CHOICES,
+        default='advertiser',
+        help_text='User role: advertiser or media_owner'
+    )
 
     def __str__(self):
         return self.username or self.email
+    
+    def is_media_owner(self):
+        """Check if user is a media owner"""
+        return self.user_type == 'media_owner'
+    
+    def is_advertiser(self):
+        """Check if user is an advertiser"""
+        return self.user_type == 'advertiser'
+    
+    def can_create_billboards(self):
+        """Check if user can create billboards"""
+        return self.is_media_owner()
     
     def get_formatted_phone(self):
         """Return formatted phone number with country code"""

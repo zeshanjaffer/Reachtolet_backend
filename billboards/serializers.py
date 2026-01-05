@@ -10,6 +10,9 @@ class BillboardSerializer(serializers.ModelSerializer):
     approved_by_username = serializers.CharField(source='approved_by.username', read_only=True)
     rejected_by_username = serializers.CharField(source='rejected_by.username', read_only=True)
     
+    # Wishlist status - check if current user has this billboard in wishlist
+    is_in_wishlist = serializers.SerializerMethodField()
+    
     class Meta:
         model = Billboard
         fields = [
@@ -22,11 +25,21 @@ class BillboardSerializer(serializers.ModelSerializer):
             'generator_backup', 'created_at', 'user_name',
             # Approval workflow fields
             'approval_status', 'approval_status_display', 'approved_at', 'rejected_at',
-            'rejection_reason', 'approved_by_username', 'rejected_by_username'
+            'rejection_reason', 'approved_by_username', 'rejected_by_username',
+            # Wishlist status
+            'is_in_wishlist'
         ]
         read_only_fields = ('user', 'views', 'leads', 'created_at', 'is_active', 'user_name', 
                            'approved_at', 'rejected_at', 'approved_by', 'rejected_by', 
-                           'approval_status_display', 'approved_by_username', 'rejected_by_username')
+                           'approval_status_display', 'approved_by_username', 'rejected_by_username',
+                           'is_in_wishlist')
+
+    def get_is_in_wishlist(self, obj):
+        """Check if the current user has this billboard in their wishlist"""
+        request = self.context.get('request')
+        if request and request.user.is_authenticated:
+            return Wishlist.objects.filter(user=request.user, billboard=obj).exists()
+        return False  # Not authenticated or no request context
 
     def create(self, validated_data):
         # Set the user from the request
@@ -43,6 +56,9 @@ class BillboardListSerializer(serializers.ModelSerializer):
     approved_by_username = serializers.CharField(source='approved_by.username', read_only=True)
     rejected_by_username = serializers.CharField(source='rejected_by.username', read_only=True)
     
+    # Wishlist status - check if current user has this billboard in wishlist
+    is_in_wishlist = serializers.SerializerMethodField()
+    
     class Meta:
         model = Billboard
         fields = [
@@ -55,11 +71,21 @@ class BillboardListSerializer(serializers.ModelSerializer):
             'generator_backup', 'created_at', 'user_name',
             # Approval workflow fields
             'approval_status', 'approval_status_display', 'approved_at', 'rejected_at',
-            'rejection_reason', 'approved_by_username', 'rejected_by_username'
+            'rejection_reason', 'approved_by_username', 'rejected_by_username',
+            # Wishlist status
+            'is_in_wishlist'
         ]
         read_only_fields = ('user', 'views', 'leads', 'created_at', 'is_active', 'user_name',
                            'approved_at', 'rejected_at', 'approved_by', 'rejected_by',
-                           'approval_status_display', 'approved_by_username', 'rejected_by_username')
+                           'approval_status_display', 'approved_by_username', 'rejected_by_username',
+                           'is_in_wishlist')
+    
+    def get_is_in_wishlist(self, obj):
+        """Check if the current user has this billboard in their wishlist"""
+        request = self.context.get('request')
+        if request and request.user.is_authenticated:
+            return Wishlist.objects.filter(user=request.user, billboard=obj).exists()
+        return False  # Not authenticated or no request context
 
 
 class WishlistSerializer(serializers.ModelSerializer):

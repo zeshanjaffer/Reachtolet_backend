@@ -75,7 +75,12 @@ class RegisterView(generics.CreateAPIView):
         # Automatically log in the user and return JWT tokens
         refresh = RefreshToken.for_user(user)
         return Response({
-            'user': UserSerializer(user).data,
+            'user': {
+                'id': user.id,
+                'email': user.email,
+                'username': user.username,
+                'user_type': user.user_type
+            },
             'refresh': str(refresh),
             'access': str(refresh.access_token),
             'message': 'User registered successfully'
@@ -112,6 +117,11 @@ class GoogleLoginView(APIView):
         if not email:
             return Response({'detail': 'No email in Google token.'}, status=status.HTTP_400_BAD_REQUEST)
 
+        # Get user_type from request (required for new users)
+        user_type = request.data.get('user_type', 'advertiser')
+        if user_type not in ['advertiser', 'media_owner']:
+            user_type = 'advertiser'  # Default to advertiser if invalid
+        
         # Get or create user
         from .models import User
         user, created = User.objects.get_or_create(email=email, defaults={
@@ -119,6 +129,7 @@ class GoogleLoginView(APIView):
             'name': data.get('name', ''),
             'first_name': data.get('given_name', ''),
             'last_name': data.get('family_name', ''),
+            'user_type': user_type,
         })
         if created:
             user.set_unusable_password()
@@ -127,7 +138,12 @@ class GoogleLoginView(APIView):
         # Issue JWT
         refresh = RefreshToken.for_user(user)
         return Response({
-            'user': UserSerializer(user).data,
+            'user': {
+                'id': user.id,
+                'email': user.email,
+                'username': user.username,
+                'user_type': user.user_type
+            },
             'refresh': str(refresh),
             'access': str(refresh.access_token),
         })

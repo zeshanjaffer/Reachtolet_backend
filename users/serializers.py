@@ -9,7 +9,7 @@ class UserSerializer(serializers.ModelSerializer):
     
     class Meta:
         model = User
-        fields = ['id', 'username', 'email', 'phone', 'country_code', 'formatted_phone', 'name', 'first_name', 'last_name', 'profile_image']
+        fields = ['id', 'username', 'email', 'phone', 'country_code', 'formatted_phone', 'name', 'first_name', 'last_name', 'profile_image', 'user_type']
     
     def get_formatted_phone(self, obj):
         """Return formatted phone number with country code"""
@@ -18,10 +18,15 @@ class UserSerializer(serializers.ModelSerializer):
 class RegisterSerializer(serializers.ModelSerializer):
     password = serializers.CharField(write_only=True, required=True, validators=[validate_password])
     country_code = serializers.CharField(max_length=3, required=False, allow_blank=True)
+    user_type = serializers.ChoiceField(
+        choices=User.USER_TYPE_CHOICES,
+        required=True,
+        help_text="User role: 'advertiser' or 'media_owner'"
+    )
     
     class Meta:
         model = User
-        fields = ['id', 'username', 'email', 'phone', 'country_code', 'name', 'first_name', 'last_name', 'password']
+        fields = ['id', 'username', 'email', 'phone', 'country_code', 'name', 'first_name', 'last_name', 'password', 'user_type']
 
     def validate_country_code(self, value):
         """Validate country code format and existence"""
@@ -53,9 +58,24 @@ class RegisterSerializer(serializers.ModelSerializer):
                 )
             return cleaned_phone
         return value
+    
+    def validate_user_type(self, value):
+        """Validate user_type field"""
+        valid_types = ['advertiser', 'media_owner']
+        if value not in valid_types:
+            raise serializers.ValidationError(
+                f"user_type must be one of: {', '.join(valid_types)}"
+            )
+        return value
 
     def validate(self, data):
         """Validate phone and country code consistency"""
+        # Ensure user_type is provided
+        if 'user_type' not in data:
+            raise serializers.ValidationError({
+                'user_type': 'This field is required.'
+            })
+        
         phone = data.get('phone')
         country_code = data.get('country_code')
         
@@ -88,6 +108,7 @@ class RegisterSerializer(serializers.ModelSerializer):
             name=validated_data.get('name', ''),
             first_name=validated_data.get('first_name', ''),
             last_name=validated_data.get('last_name', ''),
+            user_type=validated_data.get('user_type', 'advertiser'),
         )
         user.set_password(validated_data['password'])
         user.save()
@@ -98,12 +119,20 @@ class UserProfileUpdateSerializer(serializers.ModelSerializer):
     
     class Meta:
         model = User
-        fields = ['id', 'username', 'email', 'phone', 'country_code', 'formatted_phone', 'name', 'first_name', 'last_name', 'profile_image']
-        read_only_fields = ['id', 'username', 'email']
+        fields = ['id', 'username', 'email', 'phone', 'country_code', 'formatted_phone', 'name', 'first_name', 'last_name', 'profile_image', 'user_type']
+        read_only_fields = ['id', 'username', 'email', 'user_type']
     
     def get_formatted_phone(self, obj):
         """Return formatted phone number with country code"""
         return obj.get_formatted_phone()
+    
+    def validate_user_type(self, value):
+        """Prevent user_type changes after registration"""
+        if self.instance and self.instance.user_type != value:
+            raise serializers.ValidationError(
+                "user_type cannot be changed after registration"
+            )
+        return value
     
     def validate_country_code(self, value):
         """Validate country code format and existence"""

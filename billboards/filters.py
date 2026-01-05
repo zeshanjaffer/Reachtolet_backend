@@ -9,15 +9,8 @@ class BillboardFilter(filters.FilterSet):
     ooh_media_type = filters.CharFilter(lookup_expr='iexact', help_text="Filter by media type (Digital Billboard, Static Billboard, etc.)")
     
     # Location-based filters - Radius search
-    lat = filters.NumberFilter(help_text="Center latitude for radius search")
-    lng = filters.NumberFilter(help_text="Center longitude for radius search")
-    radius = filters.NumberFilter(help_text="Radius in kilometers for location-based search")
-    
-    # Map bounds filters - For map viewport (preferred for map views)
-    ne_lat = filters.NumberFilter(help_text="Northeast latitude (map bounds)")
-    ne_lng = filters.NumberFilter(help_text="Northeast longitude (map bounds)")
-    sw_lat = filters.NumberFilter(help_text="Southwest latitude (map bounds)")
-    sw_lng = filters.NumberFilter(help_text="Southwest longitude (map bounds)")
+    # Note: lat, lng, radius, ne_lat, ne_lng, sw_lat, sw_lng are handled in filter_queryset method
+    # They are NOT model fields, so we don't define them here to avoid FieldError
     
     class Meta:
         model = Billboard

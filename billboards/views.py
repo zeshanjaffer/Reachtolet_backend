@@ -2,6 +2,10 @@ from rest_framework import generics, permissions, status
 from .models import Billboard, Wishlist, Lead, View
 from .serializers import BillboardSerializer, BillboardListSerializer, WishlistSerializer
 from .filters import BillboardFilter
+from .clustering import cluster_billboards, should_use_clustering
+from django.core.cache import cache
+from .signals import get_cache_version
+import hashlib
 from rest_framework.views import APIView
 from rest_framework.parsers import MultiPartParser, FormParser
 from rest_framework.response import Response
@@ -21,6 +25,7 @@ from django.db.models import Prefetch
 from django.utils import timezone
 from drf_yasg.utils import swagger_auto_schema
 from drf_yasg import openapi
+from .permissions import IsMediaOwner, IsBillboardOwner
 # WebSocket imports removed
 import os
 import uuid
@@ -54,6 +59,12 @@ class BillboardListCreateView(generics.ListCreateAPIView):
             return BillboardListSerializer
         return BillboardSerializer
     
+    def get_serializer_context(self):
+        """Add request to serializer context for wishlist check"""
+        context = super().get_serializer_context()
+        context['request'] = self.request
+        return context
+    
     permission_classes = [permissions.AllowAny]
     pagination_class = CustomPagination
     filter_backends = [DjangoFilterBackend, SearchFilter, OrderingFilter]
@@ -82,21 +93,97 @@ class BillboardListCreateView(generics.ListCreateAPIView):
 
     def list(self, request, *args, **kwargs):
         """
-        Override list to handle non-paginated responses for map views.
+        Override list to handle non-paginated responses for map views and clustering.
+        Includes smart caching with version-based invalidation for optimal performance.
         """
         queryset = self.filter_queryset(self.get_queryset())
         
+        # Check if clustering is requested
+        use_clustering = request.query_params.get('cluster', 'false').lower() == 'true'
+        try:
+            zoom_level = float(request.query_params.get('zoom', 10.0))
+        except (ValueError, TypeError):
+            zoom_level = 10.0  # Default zoom level
+        
         # Check if pagination should be disabled (map bounds provided)
         page = self.paginate_queryset(queryset)
+        
         if page is None:
-            # No pagination - return all results (for map views)
+            # Map view - check cache first
+            ne_lat = request.query_params.get('ne_lat')
+            ne_lng = request.query_params.get('ne_lng')
+            sw_lat = request.query_params.get('sw_lat')
+            sw_lng = request.query_params.get('sw_lng')
+            
+            if ne_lat and ne_lng and sw_lat and sw_lng:
+                # Create cache key with version for smart invalidation
+                cache_version = get_cache_version()
+                cache_key_base = f"billboards_v{cache_version}_{ne_lat}_{ne_lng}_{sw_lat}_{sw_lng}_{zoom_level}_{use_clustering}"
+                cache_key = hashlib.md5(cache_key_base.encode()).hexdigest()
+                
+                # Try to get from cache (2 minute TTL)
+                cached_response = cache.get(cache_key)
+                if cached_response:
+                    logger.debug(f"Cache HIT for billboards map view: {cache_key[:16]}...")
+                    return Response(cached_response)
+                
+                logger.debug(f"Cache MISS for billboards map view: {cache_key[:16]}...")
+                
+                # Not in cache - fetch and process
+                serializer = self.get_serializer(queryset, many=True)
+                billboards_data = serializer.data
+                
+                # Apply clustering if requested
+                if use_clustering:
+                    billboard_count = len(billboards_data)
+                    # Auto-enable clustering for large datasets or low zoom
+                    if should_use_clustering(zoom_level, billboard_count) or use_clustering:
+                        clusters = cluster_billboards(billboards_data, zoom_level)
+                        response_data = {
+                            'count': billboard_count,
+                            'clustered_count': len(clusters),
+                            'clusters': clusters,
+                            'clustering_enabled': True,
+                            'zoom_level': zoom_level
+                        }
+                        # Cache for 2 minutes
+                        cache.set(cache_key, response_data, 120)
+                        return Response(response_data)
+                
+                # Return individual billboards (no clustering)
+                response_data = {
+                    'count': queryset.count(),
+                    'results': billboards_data,
+                    'clustering_enabled': False
+                }
+                # Cache for 2 minutes
+                cache.set(cache_key, response_data, 120)
+                return Response(response_data)
+            
+            # No map bounds - return without caching (list view)
             serializer = self.get_serializer(queryset, many=True)
+            billboards_data = serializer.data
+            
+            # Apply clustering if requested
+            if use_clustering:
+                billboard_count = len(billboards_data)
+                if should_use_clustering(zoom_level, billboard_count) or use_clustering:
+                    clusters = cluster_billboards(billboards_data, zoom_level)
+                    return Response({
+                        'count': billboard_count,
+                        'clustered_count': len(clusters),
+                        'clusters': clusters,
+                        'clustering_enabled': True,
+                        'zoom_level': zoom_level
+                    })
+            
             return Response({
                 'count': queryset.count(),
-                'results': serializer.data
+                'results': billboards_data,
+                'clustering_enabled': False
             })
         
-        # Paginated response (for list views)
+        # Paginated response (for list views - no clustering)
         if page is not None:
             serializer = self.get_serializer(page, many=True)
             return self.get_paginated_response(serializer.data)
@@ -104,8 +191,27 @@ class BillboardListCreateView(generics.ListCreateAPIView):
         serializer = self.get_serializer(queryset, many=True)
         return Response(serializer.data)
 
+    def create(self, request, *args, **kwargs):
+        """
+        Override create to check user role before allowing billboard creation
+        """
+        # Check if user is authenticated
+        if not request.user.is_authenticated:
+            return Response({
+                'detail': 'Authentication required to create billboards'
+            }, status=status.HTTP_401_UNAUTHORIZED)
+        
+        # Check if user is a media owner
+        if request.user.user_type != 'media_owner':
+            return Response({
+                'detail': 'Only media owners can create billboards. You are registered as an advertiser.'
+            }, status=status.HTTP_403_FORBIDDEN)
+        
+        # Proceed with normal creation
+        return super().create(request, *args, **kwargs)
+    
     def perform_create(self, serializer):
-        user = self.request.user if self.request.user.is_authenticated else None
+        user = self.request.user
         # Set default approval status to pending for new billboards
         billboard = serializer.save(user=user, approval_status='pending')
         # WebSocket notifications removed
@@ -122,7 +228,7 @@ class BillboardListCreateView(generics.ListCreateAPIView):
 class BillboardDetailView(generics.RetrieveUpdateDestroyAPIView):
     # OPTIMIZED: Enhanced queryset for single billboard view
     def get_queryset(self):
-        return Billboard.objects.select_related('user')\
+        queryset = Billboard.objects.select_related('user')\
             .only(
                 'id', 'city', 'description', 'number_of_boards', 'average_daily_views',
                 'traffic_direction', 'road_position', 'road_name', 'exposure_time',
@@ -132,17 +238,59 @@ class BillboardDetailView(generics.RetrieveUpdateDestroyAPIView):
                 'latitude', 'longitude', 'views', 'leads', 'is_active', 'created_at',
                 'user__id', 'user__name', 'user__email'
             )
+        return queryset
     
     serializer_class = BillboardSerializer
-    permission_classes = [permissions.AllowAny]
+    
+    def get_serializer_context(self):
+        """Add request to serializer context for wishlist check"""
+        context = super().get_serializer_context()
+        context['request'] = self.request
+        return context
+    
+    def get_permissions(self):
+        """
+        Allow anyone to view, but only media owners can update/delete
+        """
+        if self.request.method == 'GET':
+            return [permissions.AllowAny()]
+        return [IsAuthenticated()]
 
     def update(self, request, *args, **kwargs):
+        instance = self.get_object()
+        
+        # Check if user is media_owner
+        if request.user.user_type != 'media_owner':
+            return Response({
+                'detail': 'Only media owners can update billboards.'
+            }, status=status.HTTP_403_FORBIDDEN)
+        
+        # Check if user owns this billboard
+        if instance.user != request.user:
+            return Response({
+                'detail': 'You can only update your own billboards.'
+            }, status=status.HTTP_403_FORBIDDEN)
+        
         response = super().update(request, *args, **kwargs)
         # WebSocket notifications removed
         return response
 
     def destroy(self, request, *args, **kwargs):
-        billboard_id = str(self.get_object().id)
+        instance = self.get_object()
+        
+        # Check if user is media_owner
+        if request.user.user_type != 'media_owner':
+            return Response({
+                'detail': 'Only media owners can delete billboards.'
+            }, status=status.HTTP_403_FORBIDDEN)
+        
+        # Check if user owns this billboard
+        if instance.user != request.user:
+            return Response({
+                'detail': 'You can only delete your own billboards.'
+            }, status=status.HTTP_403_FORBIDDEN)
+        
+        billboard_id = str(instance.id)
         response = super().destroy(request, *args, **kwargs)
         # WebSocket notifications removed
         return response
@@ -164,6 +312,18 @@ class MyBillboardsView(generics.ListAPIView):
     search_fields = ['city', 'description', 'company_name']
     ordering_fields = ['created_at', 'price_range']
     ordering = ['-created_at']
+
+    def get(self, request, *args, **kwargs):
+        """
+        Override get to check if user is media_owner before allowing access
+        """
+        # Check if user is media_owner
+        if request.user.user_type != 'media_owner':
+            return Response({
+                'detail': 'Only media owners can access their billboards. You are registered as an advertiser.'
+            }, status=status.HTTP_403_FORBIDDEN)
+        
+        return super().get(request, *args, **kwargs)
 
     def get_queryset(self):
         # OPTIMIZED: Enhanced queryset for user's billboards with ALL fields and ALL statuses
@@ -354,6 +514,12 @@ class BillboardImageUploadView(APIView):
     permission_classes = [permissions.IsAuthenticated]
 
     def post(self, request, format=None):
+        # Check if user is a media owner
+        if request.user.user_type != 'media_owner':
+            return Response({
+                'detail': 'Only media owners can upload billboard images.'
+            }, status=status.HTTP_403_FORBIDDEN)
+        
         try:
             file_obj = request.FILES.get('image')
             if not file_obj:
@@ -399,14 +565,21 @@ class BillboardImageUploadView(APIView):
 
 # NEW: Toggle active status endpoint
 @api_view(['PATCH'])
+@permission_classes([IsAuthenticated])
 def toggle_billboard_active(request, billboard_id):
     """
     Toggle the active status of a billboard
-    Only billboard owners can toggle their own billboards
+    Only billboard owners (media_owners) can toggle their own billboards
     """
     try:
         # Get the billboard
         billboard = Billboard.objects.get(id=billboard_id)
+        
+        # Check if user is media_owner
+        if request.user.user_type != 'media_owner':
+            return Response({
+                'error': 'Only media owners can toggle billboard status.'
+            }, status=status.HTTP_403_FORBIDDEN)
         
         # Check ownership - only owners can toggle
         if billboard.user != request.user:

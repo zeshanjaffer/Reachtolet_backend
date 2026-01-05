@@ -26,8 +26,8 @@ class Billboard(models.Model):
     type = models.CharField(max_length=50, db_index=True)  # Added index for filtering
     images = models.JSONField(default=list, blank=True)  # List of image URLs
     unavailable_dates = models.JSONField(default=list, blank=True)
-    latitude = models.FloatField(blank=True, null=True)
-    longitude = models.FloatField(blank=True, null=True)
+    latitude = models.FloatField(blank=True, null=True, db_index=True)  # Indexed for map queries
+    longitude = models.FloatField(blank=True, null=True, db_index=True)  # Indexed for map queries
     views = models.IntegerField(default=0)  # NEW: View count field
     leads = models.IntegerField(default=0, db_index=True)  # NEW: Simple leads counter
     is_active = models.BooleanField(default=True, db_index=True)  # NEW: Active/inactive toggle with index
@@ -134,6 +134,7 @@ class Billboard(models.Model):
         self.approved_at = None
         self.approved_by = None
         self.save(update_fields=['approval_status', 'rejected_at', 'rejected_by', 'rejection_reason', 'approved_at', 'approved_by'])
+        # Cache will be invalidated by signal
         return True
     
     def is_approved(self):
@@ -158,6 +159,8 @@ class Billboard(models.Model):
             models.Index(fields=['approval_status']),  # Index for approval status filtering
             models.Index(fields=['approval_status', 'is_active']),  # Composite index for approved and active billboards
             models.Index(fields=['user', 'approval_status']),  # Composite index for user's billboards by status
+            models.Index(fields=['latitude', 'longitude']),  # Index for map bounds queries (CRITICAL for performance)
+            models.Index(fields=['approval_status', 'is_active', 'latitude', 'longitude']),  # Composite index for map queries
         ]
 
 

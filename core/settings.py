@@ -37,6 +37,8 @@ MIDDLEWARE = [
     'django.contrib.auth.middleware.AuthenticationMiddleware',
     'django.contrib.messages.middleware.MessageMiddleware',
     'django.middleware.clickjacking.XFrameOptionsMiddleware',
+    'django.middleware.gzip.GZipMiddleware',  # Enable response compression for better performance
+    'core.middleware.CloseOldConnectionsMiddleware',  # Close old DB connections to prevent pool exhaustion
 ]
 
 ROOT_URLCONF = 'core.urls'
@@ -69,11 +71,14 @@ DATABASES = {
         'PORT': '5432',
         'OPTIONS': {
             'sslmode': 'require',
-            'connect_timeout': 10,
-            'options': '-c statement_timeout=60000',
+            'connect_timeout': 5,  # Reduced timeout to fail fast
+            'options': '-c statement_timeout=30000',  # Reduced statement timeout
         },
-        'CONN_MAX_AGE': 60,
-        'CONN_HEALTH_CHECKS': True,
+        # For Supabase free tier: disable persistent connections to prevent pool exhaustion
+        # Connections will be closed after each request (handled by middleware)
+        'CONN_MAX_AGE': 0,  # Disable persistent connections - close after each request
+        'CONN_HEALTH_CHECKS': False,  # Disable health checks to reduce overhead
+        'ATOMIC_REQUESTS': False,  # Don't wrap each request in a transaction
     }
 }
 
