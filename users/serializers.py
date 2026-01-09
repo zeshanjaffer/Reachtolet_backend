@@ -2,7 +2,53 @@ from rest_framework import serializers
 from .models import User
 from django.contrib.auth.password_validation import validate_password
 from .country_codes import is_valid_country_code, validate_phone_for_country, get_country_info
+from rest_framework_simplejwt.serializers import TokenObtainPairSerializer
+from django.contrib.auth import authenticate
 import re
+
+class CustomTokenObtainPairSerializer(TokenObtainPairSerializer):
+    """Custom token serializer that accepts email or username"""
+    email = serializers.EmailField(required=False)
+    
+    def validate(self, attrs):
+        # Accept either 'email' or 'username' field (Flutter sends username with email value)
+        email = attrs.get('email') or attrs.get('username')
+        password = attrs.get('password')
+        
+        if not email or not password:
+            raise serializers.ValidationError({
+                'email': 'Email or username is required.',
+                'password': 'Password is required.'
+            })
+        
+        # Authenticate using email (username field in Django User model is set to email)
+        user = authenticate(username=email, password=password)
+        
+        if not user:
+            raise serializers.ValidationError({
+                'detail': 'No active account found with the given credentials'
+            })
+        
+        if not user.is_active:
+            raise serializers.ValidationError({
+                'detail': 'User account is disabled.'
+            })
+        
+        # Get the token
+        refresh = self.get_token(user)
+        
+        data = {
+            'access': str(refresh.access_token),
+            'refresh': str(refresh),
+            'user': {
+                'id': user.id,
+                'email': user.email,
+                'username': user.username,
+                'user_type': user.user_type
+            }
+        }
+        
+        return data
 
 class UserSerializer(serializers.ModelSerializer):
     formatted_phone = serializers.SerializerMethodField()
@@ -76,9 +122,10 @@ class RegisterSerializer(serializers.ModelSerializer):
                 'user_type': 'This field is required.'
             })
         
-        phone = data.get('phone')
-        country_code = data.get('country_code')
+        phone = data.get('phone', '').strip()
+        country_code = data.get('country_code', '').strip()
         
+        # Both phone and country_code are optional, but if one is provided, both should be
         if phone and not country_code:
             raise serializers.ValidationError({
                 "country_code": "Country code is required when phone number is provided"
@@ -89,7 +136,7 @@ class RegisterSerializer(serializers.ModelSerializer):
                 "phone": "Phone number is required when country code is provided"
             })
         
-        # Validate phone number for specific country
+        # Validate phone number for specific country only if both are provided
         if phone and country_code:
             is_valid, error_message = validate_phone_for_country(phone, country_code)
             if not is_valid:
@@ -100,11 +147,17 @@ class RegisterSerializer(serializers.ModelSerializer):
         return data
 
     def create(self, validated_data):
+        # Use provided username or default to email
+        username = validated_data.get('username', validated_data['email'])
+        # Clean phone and country_code - set to empty string if None
+        phone = validated_data.get('phone', '') or ''
+        country_code = validated_data.get('country_code', '') or ''
+        
         user = User.objects.create(
-            username=validated_data['email'],
+            username=username,
             email=validated_data['email'],
-            phone=validated_data.get('phone', ''),
-            country_code=validated_data.get('country_code', ''),
+            phone=phone,
+            country_code=country_code,
             name=validated_data.get('name', ''),
             first_name=validated_data.get('first_name', ''),
             last_name=validated_data.get('last_name', ''),

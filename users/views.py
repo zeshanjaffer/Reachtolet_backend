@@ -2,7 +2,7 @@ from rest_framework import generics, permissions, status
 from rest_framework.response import Response
 from rest_framework_simplejwt.views import TokenObtainPairView
 from .models import User
-from .serializers import UserSerializer, RegisterSerializer, UserProfileUpdateSerializer
+from .serializers import UserSerializer, RegisterSerializer, UserProfileUpdateSerializer, CustomTokenObtainPairSerializer
 from rest_framework.permissions import AllowAny
 from rest_framework.views import APIView
 from rest_framework_simplejwt.tokens import RefreshToken
@@ -19,6 +19,10 @@ import logging
 logger = logging.getLogger(__name__)
 
 GOOGLE_CLIENT_ID = "971707519453-srarmkadprdmpgv385312cgfckok9eku.apps.googleusercontent.com"
+
+class CustomTokenObtainPairView(TokenObtainPairView):
+    """Custom login view that accepts email instead of username"""
+    serializer_class = CustomTokenObtainPairSerializer
 
 @api_view(['GET'])
 @permission_classes([permissions.IsAuthenticated])
