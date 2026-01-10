@@ -7,21 +7,29 @@ from django.contrib.auth import authenticate
 import re
 
 class CustomTokenObtainPairSerializer(TokenObtainPairSerializer):
-    """Custom token serializer that accepts email or username"""
-    email = serializers.EmailField(required=False)
+    """Custom token serializer that accepts email only (no username)"""
+    username_field = 'email'  # Use email as username field
+    
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        # Remove username field, only use email
+        if 'username' in self.fields:
+            del self.fields['username']
+        # Add email field
+        self.fields['email'] = serializers.EmailField()
     
     def validate(self, attrs):
-        # Accept either 'email' or 'username' field (Flutter sends username with email value)
-        email = attrs.get('email') or attrs.get('username')
+        # Get email (required field now)
+        email = attrs.get('email')
         password = attrs.get('password')
         
         if not email or not password:
             raise serializers.ValidationError({
-                'email': 'Email or username is required.',
+                'email': 'Email is required.',
                 'password': 'Password is required.'
             })
         
-        # Authenticate using email (username field in Django User model is set to email)
+        # Authenticate using email (email is now the USERNAME_FIELD)
         user = authenticate(username=email, password=password)
         
         if not user:
@@ -43,7 +51,6 @@ class CustomTokenObtainPairSerializer(TokenObtainPairSerializer):
             'user': {
                 'id': user.id,
                 'email': user.email,
-                'username': user.username,
                 'user_type': user.user_type
             }
         }
@@ -55,7 +62,7 @@ class UserSerializer(serializers.ModelSerializer):
     
     class Meta:
         model = User
-        fields = ['id', 'username', 'email', 'phone', 'country_code', 'formatted_phone', 'name', 'first_name', 'last_name', 'profile_image', 'user_type']
+        fields = ['id', 'email', 'phone', 'country_code', 'formatted_phone', 'name', 'first_name', 'last_name', 'profile_image', 'user_type']
     
     def get_formatted_phone(self, obj):
         """Return formatted phone number with country code"""
@@ -72,7 +79,16 @@ class RegisterSerializer(serializers.ModelSerializer):
     
     class Meta:
         model = User
-        fields = ['id', 'username', 'email', 'phone', 'country_code', 'name', 'first_name', 'last_name', 'password', 'user_type']
+        fields = ['id', 'email', 'phone', 'country_code', 'name', 'first_name', 'last_name', 'password', 'user_type']
+        extra_kwargs = {
+            'username': {'required': False, 'allow_blank': True, 'allow_null': True, 'write_only': False}
+        }
+    
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        # Remove username field completely from serializer
+        if 'username' in self.fields:
+            self.fields.pop('username')
 
     def validate_country_code(self, value):
         """Validate country code format and existence"""
@@ -122,6 +138,9 @@ class RegisterSerializer(serializers.ModelSerializer):
                 'user_type': 'This field is required.'
             })
         
+        # Remove username from data if present (we don't use it)
+        data.pop('username', None)
+        
         phone = data.get('phone', '').strip()
         country_code = data.get('country_code', '').strip()
         
@@ -147,15 +166,14 @@ class RegisterSerializer(serializers.ModelSerializer):
         return data
 
     def create(self, validated_data):
-        # Use provided username or default to email
-        username = validated_data.get('username', validated_data['email'])
         # Clean phone and country_code - set to empty string if None
         phone = validated_data.get('phone', '') or ''
         country_code = validated_data.get('country_code', '') or ''
         
-        user = User.objects.create(
-            username=username,
+        # Create user with email as username (USERNAME_FIELD is email)
+        user = User.objects.create_user(
             email=validated_data['email'],
+            password=validated_data['password'],
             phone=phone,
             country_code=country_code,
             name=validated_data.get('name', ''),
@@ -163,8 +181,6 @@ class RegisterSerializer(serializers.ModelSerializer):
             last_name=validated_data.get('last_name', ''),
             user_type=validated_data.get('user_type', 'advertiser'),
         )
-        user.set_password(validated_data['password'])
-        user.save()
         return user
 
 class UserProfileUpdateSerializer(serializers.ModelSerializer):
@@ -172,8 +188,8 @@ class UserProfileUpdateSerializer(serializers.ModelSerializer):
     
     class Meta:
         model = User
-        fields = ['id', 'username', 'email', 'phone', 'country_code', 'formatted_phone', 'name', 'first_name', 'last_name', 'profile_image', 'user_type']
-        read_only_fields = ['id', 'username', 'email', 'user_type']
+        fields = ['id', 'email', 'phone', 'country_code', 'formatted_phone', 'name', 'first_name', 'last_name', 'profile_image', 'user_type']
+        read_only_fields = ['id', 'email', 'user_type']
     
     def get_formatted_phone(self, obj):
         """Return formatted phone number with country code"""

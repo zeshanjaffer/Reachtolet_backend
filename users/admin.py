@@ -4,25 +4,25 @@ from .models import User
 
 @admin.register(User)
 class UserAdmin(BaseUserAdmin):
-    # List display with all important fields
+    # List display with all important fields (removed username)
     list_display = (
-        'username', 'email', 'name', 'get_formatted_phone_display', 'first_name', 'last_name', 
+        'email', 'name', 'get_formatted_phone_display', 'first_name', 'last_name', 
         'is_staff', 'is_active', 'date_joined'
     )
     
-    # Search functionality
-    search_fields = ('username', 'email', 'name', 'first_name', 'last_name', 'phone', 'country_code')
+    # Search functionality (removed username)
+    search_fields = ('email', 'name', 'first_name', 'last_name', 'phone', 'country_code')
     
     # Filters
     list_filter = (
         'is_staff', 'is_active', 'is_superuser', 'date_joined', 'last_login', 'country_code'
     )
     
-    # Fieldsets for detail view
+    # Fieldsets for detail view (removed username)
     fieldsets = (
-        (None, {'fields': ('username', 'password')}),
+        (None, {'fields': ('email', 'password')}),
         ('Personal Information', {
-            'fields': ('name', 'first_name', 'last_name', 'email', 'country_code', 'phone', 'profile_image')
+            'fields': ('name', 'first_name', 'last_name', 'country_code', 'phone', 'profile_image')
         }),
         ('Permissions', {
             'fields': ('is_active', 'is_staff', 'is_superuser', 'groups', 'user_permissions'),
@@ -33,11 +33,11 @@ class UserAdmin(BaseUserAdmin):
         }),
     )
     
-    # Add user fieldsets
+    # Add user fieldsets (removed username)
     add_fieldsets = (
         (None, {
             'classes': ('wide',),
-            'fields': ('username', 'email', 'name', 'country_code', 'phone', 'password1', 'password2'),
+            'fields': ('email', 'name', 'country_code', 'phone', 'password1', 'password2'),
         }),
     )
     

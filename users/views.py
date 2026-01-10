@@ -82,7 +82,6 @@ class RegisterView(generics.CreateAPIView):
             'user': {
                 'id': user.id,
                 'email': user.email,
-                'username': user.username,
                 'user_type': user.user_type
             },
             'refresh': str(refresh),
@@ -126,10 +125,9 @@ class GoogleLoginView(APIView):
         if user_type not in ['advertiser', 'media_owner']:
             user_type = 'advertiser'  # Default to advertiser if invalid
         
-        # Get or create user
+        # Get or create user (email is now USERNAME_FIELD, no username needed)
         from .models import User
         user, created = User.objects.get_or_create(email=email, defaults={
-            'username': email,
             'name': data.get('name', ''),
             'first_name': data.get('given_name', ''),
             'last_name': data.get('family_name', ''),
@@ -145,7 +143,6 @@ class GoogleLoginView(APIView):
             'user': {
                 'id': user.id,
                 'email': user.email,
-                'username': user.username,
                 'user_type': user.user_type
             },
             'refresh': str(refresh),
