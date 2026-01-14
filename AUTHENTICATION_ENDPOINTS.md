@@ -1,127 +1,375 @@
-# 🔐 Authentication Endpoints for React Native App
+# 🔐 Authentication API Endpoints
 
-Your Django backend now has **ALL 3 essential endpoints** for persistent login! 🎯
+**Base URL:** `http://44.200.108.209:8000`
 
-## ✅ **Complete Endpoint List**
+---
 
-### 1. **Token Validation Endpoint**
-```
-GET /api/users/validate-token/
-```
-**Purpose**: Check if the stored access token is still valid  
-**Headers**: `Authorization: Bearer <access_token>`  
-**Response**: 
-- `200 OK` = Token is valid
-```json
-{
-  "valid": true,
-  "user_id": 123,
-  "email": "user@example.com"
-}
-```
-- `401 Unauthorized` = Token is expired/invalid
+## 1. Signup (Register)
 
-### 2. **Token Refresh Endpoint**
-```
-POST /api/users/token/refresh/
-```
-**Purpose**: Get a new access token using the refresh token  
-**Body**: 
-```json
-{
-  "refresh": "your_refresh_token_here"
-}
-```
-**Response**:
-```json
-{
-  "access": "new_access_token_here"
-}
-```
+**Endpoint:** `POST /api/users/register/`
 
-### 3. **Login Endpoint**
-```
-POST /api/users/login/
-```
-**Purpose**: Initial login to get both tokens  
-**Body**:
-```json
-{
-  "email": "user@example.com",
-  "password": "your_password"
-}
-```
-**Response**:
-```json
-{
-  "access": "access_token_here",
-  "refresh": "refresh_token_here"
-}
+**User Types:**
+- `"advertiser"` - For users who want to advertise on billboards
+- `"media_owner"` - For users who own billboards/media spaces
+
+**Required Fields:**
+- `email` (required) - Must be unique
+- `password` (required)
+- `user_type` (required) - Must be "advertiser" or "media_owner"
+
+**Optional Fields:**
+- `username` (optional) - Must be unique if provided, min 3 characters, alphanumeric and underscore only
+- `first_name` (optional)
+- `last_name` (optional)
+- `name` (optional)
+- `phone` (optional) - Must be in international format (e.g., +1234567890)
+- `country_code` (optional) - ISO 3166-1 alpha-2 code (e.g., US, GB)
+
+**cURL (With Username and Email):**
+```bash
+curl --location 'http://44.200.108.209:8000/api/users/register/' \
+--header 'Content-Type: application/json' \
+--data-raw '{
+    "username": "johndoe",
+    "email": "advertiser@example.com",
+    "password": "TestPassword123!",
+    "first_name": "John",
+    "last_name": "Doe",
+    "user_type": "advertiser",
+    "phone": "+1234567890",
+    "country_code": "US"
+}'
 ```
 
-### 4. **Register Endpoint** (Bonus!)
+**cURL (Email Only - No Username):**
+```bash
+curl --location 'http://44.200.108.209:8000/api/users/register/' \
+--header 'Content-Type: application/json' \
+--data-raw '{
+    "email": "owner@example.com",
+    "password": "TestPassword123!",
+    "first_name": "Jane",
+    "last_name": "Smith",
+    "user_type": "media_owner",
+    "phone": "+1234567890",
+    "country_code": "US"
+}'
 ```
-POST /api/users/register/
-```
-**Purpose**: Create new user account and automatically log in  
-**Body**:
+
+**Success Response (201):**
 ```json
 {
-  "email": "newuser@example.com",
-  "password": "secure_password",
-  "name": "John Doe"
-}
-```
-**Response**:
-```json
-{
-  "user": {
-    "id": 123,
-    "email": "newuser@example.com",
-    "name": "John Doe"
-  },
-  "access": "access_token_here",
-  "refresh": "refresh_token_here",
-  "message": "User registered successfully"
+    "user": {
+        "id": 1,
+        "username": "johndoe",
+        "email": "advertiser@example.com",
+        "user_type": "advertiser"
+    },
+    "access": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...",
+    "refresh": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...",
+    "message": "User registered successfully"
 }
 ```
 
-## 🚀 **React Native Implementation Flow**
+**Error Response (400) - Missing Fields:**
+```json
+{
+    "email": ["This field is required."],
+    "password": ["This field is required."],
+    "user_type": ["This field is required."]
+}
+```
 
-### **App Startup Logic:**
-1. **Check for stored tokens** in AsyncStorage
-2. **Call `/api/users/validate-token/`** with stored access token
-3. **If 200**: User is logged in, proceed to main app
-4. **If 401**: Token expired, try refresh with `/api/users/token/refresh/`
-5. **If refresh fails**: Redirect to login screen
+**Error Response (400) - Invalid User Type:**
+```json
+{
+    "user_type": ["user_type must be one of: advertiser, media_owner"]
+}
+```
 
-### **Login Flow:**
-1. **User enters credentials**
-2. **Call `/api/users/login/`** 
-3. **Store both tokens** in AsyncStorage
-4. **Proceed to main app**
+---
 
-### **Automatic Token Refresh:**
-1. **Before each API call**, check if token is about to expire
-2. **If needed**, call `/api/users/token/refresh/`
-3. **Update stored access token**
-4. **Continue with original API call**
+## 2. Login
 
-## 🔧 **JWT Token Settings**
+**Endpoint:** `POST /api/users/login/`
 
-Your tokens are configured with:
-- **Access Token**: 1 day lifetime
-- **Refresh Token**: 7 days lifetime
+**cURL:**
+```bash
+curl --location 'http://44.200.108.209:8000/api/users/login/' \
+--header 'Content-Type: application/json' \
+--data-raw '{
+    "email": "user@example.com",
+    "password": "TestPassword123!"
+}'
+```
 
-This means users will stay logged in for up to 7 days without re-entering credentials!
+**Success Response (200):**
+```json
+{
+    "access": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...",
+    "refresh": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...",
+    "user": {
+        "id": 1,
+        "email": "user@example.com",
+        "user_type": "advertiser"
+    }
+}
+```
 
-## ✅ **You're All Set!**
+**Error Response (401):**
+```json
+{
+    "detail": "No active account found with the given credentials"
+}
+```
 
-With these 4 endpoints, your React Native app will have:
-- ✅ **Persistent login** across app restarts
-- ✅ **Automatic token refresh** 
-- ✅ **Secure authentication**
-- ✅ **User registration**
-- ✅ **No repeated login prompts**
+---
 
-**That's everything you need for a smooth user experience!** 🎉
+## 3. Refresh Token
+
+**Endpoint:** `POST /api/users/token/refresh/`
+
+**cURL:**
+```bash
+curl --location 'http://44.200.108.209:8000/api/users/token/refresh/' \
+--header 'Content-Type: application/json' \
+--data-raw '{
+    "refresh": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9..."
+}'
+```
+
+**Success Response (200):**
+```json
+{
+    "access": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9..."
+}
+```
+
+**Error Response (401):**
+```json
+{
+    "detail": "Token is invalid or expired",
+    "code": "token_not_valid"
+}
+```
+
+---
+
+## 4. Validate Token
+
+**Endpoint:** `GET /api/users/validate-token/`
+
+**cURL:**
+```bash
+curl --location 'http://44.200.108.209:8000/api/users/validate-token/' \
+--header 'Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...'
+```
+
+**Success Response (200):**
+```json
+{
+    "valid": true,
+    "user": {
+        "id": 1,
+        "email": "user@example.com",
+        "user_type": "advertiser"
+    }
+}
+```
+
+**Error Response (401):**
+```json
+{
+    "valid": false,
+    "detail": "Token is invalid or expired"
+}
+```
+
+---
+
+## 5. Get User Profile
+
+**Endpoint:** `GET /api/users/profile/`
+
+**cURL:**
+```bash
+curl --location 'http://44.200.108.209:8000/api/users/profile/' \
+--header 'Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...'
+```
+
+**Success Response (200):**
+```json
+{
+    "id": 1,
+    "email": "user@example.com",
+    "phone": "+1234567890",
+    "country_code": "US",
+    "formatted_phone": "US +1234567890",
+    "name": "John Doe",
+    "first_name": "John",
+    "last_name": "Doe",
+    "profile_image": "http://44.200.108.209:8000/media/profile_images/user.jpg",
+    "user_type": "advertiser"
+}
+```
+
+---
+
+## 6. Update User Profile
+
+**Endpoint:** `PATCH /api/users/profile/` or `PUT /api/users/profile/`
+
+**cURL (PATCH):**
+```bash
+curl --location --request PATCH 'http://44.200.108.209:8000/api/users/profile/' \
+--header 'Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...' \
+--header 'Content-Type: application/json' \
+--data-raw '{
+    "first_name": "Jane",
+    "last_name": "Smith",
+    "phone": "+9876543210",
+    "country_code": "GB"
+}'
+```
+
+**Success Response (200):**
+```json
+{
+    "id": 1,
+    "email": "user@example.com",
+    "phone": "+9876543210",
+    "country_code": "GB",
+    "formatted_phone": "GB +9876543210",
+    "first_name": "Jane",
+    "last_name": "Smith",
+    "user_type": "advertiser"
+}
+```
+
+---
+
+## 7. Google Login
+
+**Endpoint:** `POST /api/users/google-login/`
+
+**cURL:**
+```bash
+curl --location 'http://44.200.108.209:8000/api/users/google-login/' \
+--header 'Content-Type: application/json' \
+--data-raw '{
+    "access_token": "google_access_token_here"
+}'
+```
+
+**Success Response (200):**
+```json
+{
+    "access": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...",
+    "refresh": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...",
+    "user": {
+        "id": 1,
+        "email": "user@gmail.com",
+        "user_type": "advertiser"
+    }
+}
+```
+
+---
+
+## 8. Upload Profile Image
+
+**Endpoint:** `POST /api/users/upload-profile-image/`
+
+**cURL:**
+```bash
+curl --location 'http://44.200.108.209:8000/api/users/upload-profile-image/' \
+--header 'Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...' \
+--form 'profile_image=@"/path/to/image.jpg"'
+```
+
+**Success Response (200):**
+```json
+{
+    "profile_image": "http://44.200.108.209:8000/media/profile_images/user.jpg",
+    "message": "Profile image uploaded successfully"
+}
+```
+
+---
+
+## 9. Get Country Codes
+
+**Endpoint:** `GET /api/users/country-codes/`
+
+**cURL:**
+```bash
+curl --location 'http://44.200.108.209:8000/api/users/country-codes/'
+```
+
+**Success Response (200):**
+```json
+[
+    {
+        "code": "US",
+        "name": "United States",
+        "dial_code": "+1"
+    },
+    {
+        "code": "GB",
+        "name": "United Kingdom",
+        "dial_code": "+44"
+    },
+    {
+        "code": "IN",
+        "name": "India",
+        "dial_code": "+91"
+    }
+]
+```
+
+---
+
+## 📝 Notes
+
+- **Base URL:** `http://44.200.108.209:8000`
+- **Email Only:** All endpoints use email (no username field)
+- **User Type (REQUIRED):** Must be provided in signup - choose one:
+  - `"advertiser"` - For users who want to advertise on billboards
+  - `"media_owner"` - For users who own billboards/media spaces
+- **Authentication:** Protected endpoints require `Authorization: Bearer <access_token>` header
+- **Token Expiry:** Access tokens expire; use refresh token endpoint to get new access token
+- **Optional Fields:** `phone`, `country_code`, `first_name`, `last_name` are optional in signup
+- **Required Fields:** `email`, `password`, `user_type` are required in signup
+
+---
+
+## 🔑 User Type Values
+
+- `"advertiser"` - For users who want to advertise
+- `"media_owner"` - For users who own billboards/media spaces
+
+---
+
+## ⚠️ Common Error Responses
+
+**401 Unauthorized:**
+```json
+{
+    "detail": "Authentication credentials were not provided."
+}
+```
+
+**400 Bad Request:**
+```json
+{
+    "email": ["This field is required."],
+    "password": ["This field is required."]
+}
+```
+
+**500 Internal Server Error:**
+```json
+{
+    "detail": "A server error occurred."
+}
+```

@@ -33,8 +33,12 @@ def validate_token(request):
     """
     return Response({
         "valid": True,
-        "user_id": request.user.id,
-        "email": request.user.email
+        "user": {
+            "id": request.user.id,
+            "username": request.user.username,
+            "email": request.user.email,
+            "user_type": request.user.user_type
+        }
     }, status=status.HTTP_200_OK)
 
 @api_view(['GET'])
@@ -81,6 +85,7 @@ class RegisterView(generics.CreateAPIView):
         return Response({
             'user': {
                 'id': user.id,
+                'username': user.username,
                 'email': user.email,
                 'user_type': user.user_type
             },
@@ -142,6 +147,7 @@ class GoogleLoginView(APIView):
         return Response({
             'user': {
                 'id': user.id,
+                'username': user.username,
                 'email': user.email,
                 'user_type': user.user_type
             },

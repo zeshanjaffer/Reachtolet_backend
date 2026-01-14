@@ -7,30 +7,51 @@ from django.contrib.auth import authenticate
 import re
 
 class CustomTokenObtainPairSerializer(TokenObtainPairSerializer):
-    """Custom token serializer that accepts email only (no username)"""
+    """Custom token serializer that accepts both email and username"""
     username_field = 'email'  # Use email as username field
     
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
-        # Remove username field, only use email
-        if 'username' in self.fields:
-            del self.fields['username']
+        # Keep username field but make it optional
         # Add email field
-        self.fields['email'] = serializers.EmailField()
+        self.fields['email'] = serializers.EmailField(required=False, allow_blank=True)
+        self.fields['username'] = serializers.CharField(required=False, allow_blank=True)
     
     def validate(self, attrs):
-        # Get email (required field now)
-        email = attrs.get('email')
+        # Get email or username (at least one required)
+        email = attrs.get('email', '').strip()
+        username = attrs.get('username', '').strip()
         password = attrs.get('password')
         
-        if not email or not password:
+        if not password:
             raise serializers.ValidationError({
-                'email': 'Email is required.',
                 'password': 'Password is required.'
             })
         
-        # Authenticate using email (email is now the USERNAME_FIELD)
-        user = authenticate(username=email, password=password)
+        if not email and not username:
+            raise serializers.ValidationError({
+                'email': 'Either email or username is required.',
+                'username': 'Either email or username is required.'
+            })
+        
+        # Authenticate using email or username
+        # Since USERNAME_FIELD is email, we use email for authentication
+        # But if username is provided, we need to get the user's email first
+        login_email = email
+        if username and not email:
+            try:
+                user_obj = User.objects.get(username=username)
+                login_email = user_obj.email
+            except User.DoesNotExist:
+                login_email = None
+        
+        if not login_email:
+            raise serializers.ValidationError({
+                'detail': 'No active account found with the given credentials'
+            })
+        
+        # Authenticate using email (email is the USERNAME_FIELD)
+        user = authenticate(username=login_email, password=password)
         
         if not user:
             raise serializers.ValidationError({
@@ -51,6 +72,7 @@ class CustomTokenObtainPairSerializer(TokenObtainPairSerializer):
             'user': {
                 'id': user.id,
                 'email': user.email,
+                'username': user.username,
                 'user_type': user.user_type
             }
         }
@@ -62,7 +84,7 @@ class UserSerializer(serializers.ModelSerializer):
     
     class Meta:
         model = User
-        fields = ['id', 'email', 'phone', 'country_code', 'formatted_phone', 'name', 'first_name', 'last_name', 'profile_image', 'user_type']
+        fields = ['id', 'username', 'email', 'phone', 'country_code', 'formatted_phone', 'name', 'first_name', 'last_name', 'profile_image', 'user_type']
     
     def get_formatted_phone(self, obj):
         """Return formatted phone number with country code"""
@@ -71,6 +93,7 @@ class UserSerializer(serializers.ModelSerializer):
 class RegisterSerializer(serializers.ModelSerializer):
     password = serializers.CharField(write_only=True, required=True, validators=[validate_password])
     country_code = serializers.CharField(max_length=3, required=False, allow_blank=True)
+    username = serializers.CharField(max_length=150, required=False, allow_blank=True, allow_null=True)
     user_type = serializers.ChoiceField(
         choices=User.USER_TYPE_CHOICES,
         required=True,
@@ -79,16 +102,10 @@ class RegisterSerializer(serializers.ModelSerializer):
     
     class Meta:
         model = User
-        fields = ['id', 'email', 'phone', 'country_code', 'name', 'first_name', 'last_name', 'password', 'user_type']
+        fields = ['id', 'username', 'email', 'phone', 'country_code', 'name', 'first_name', 'last_name', 'password', 'user_type']
         extra_kwargs = {
-            'username': {'required': False, 'allow_blank': True, 'allow_null': True, 'write_only': False}
+            'username': {'required': False, 'allow_blank': True, 'allow_null': True}
         }
-    
-    def __init__(self, *args, **kwargs):
-        super().__init__(*args, **kwargs)
-        # Remove username field completely from serializer
-        if 'username' in self.fields:
-            self.fields.pop('username')
 
     def validate_country_code(self, value):
         """Validate country code format and existence"""
@@ -130,6 +147,19 @@ class RegisterSerializer(serializers.ModelSerializer):
             )
         return value
 
+    def validate_username(self, value):
+        """Validate username if provided"""
+        if value:
+            # Check if username already exists
+            if User.objects.filter(username=value).exists():
+                raise serializers.ValidationError("A user with this username already exists.")
+            # Validate username format (alphanumeric and underscore only)
+            if not re.match(r'^[a-zA-Z0-9_]+$', value):
+                raise serializers.ValidationError("Username can only contain letters, numbers, and underscores.")
+            if len(value) < 3:
+                raise serializers.ValidationError("Username must be at least 3 characters long.")
+        return value
+    
     def validate(self, data):
         """Validate phone and country code consistency"""
         # Ensure user_type is provided
@@ -138,8 +168,11 @@ class RegisterSerializer(serializers.ModelSerializer):
                 'user_type': 'This field is required.'
             })
         
-        # Remove username from data if present (we don't use it)
-        data.pop('username', None)
+        # Ensure either email or username is provided (email is always required)
+        if not data.get('email'):
+            raise serializers.ValidationError({
+                'email': 'Email is required.'
+            })
         
         phone = data.get('phone', '').strip()
         country_code = data.get('country_code', '').strip()
@@ -169,11 +202,13 @@ class RegisterSerializer(serializers.ModelSerializer):
         # Clean phone and country_code - set to empty string if None
         phone = validated_data.get('phone', '') or ''
         country_code = validated_data.get('country_code', '') or ''
+        username = validated_data.get('username', '').strip() or None
         
-        # Create user with email as username (USERNAME_FIELD is email)
+        # Create user with email and optional username
         user = User.objects.create_user(
             email=validated_data['email'],
             password=validated_data['password'],
+            username=username,
             phone=phone,
             country_code=country_code,
             name=validated_data.get('name', ''),

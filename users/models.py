@@ -36,6 +36,15 @@ class User(AbstractUser):
     # Set custom manager
     objects = UserManager()
     
+    # Override username field - make it optional and unique
+    username = models.CharField(
+        max_length=150,
+        unique=True,
+        null=True,
+        blank=True,
+        help_text='Optional username. Email can also be used for login.'
+    )
+    
     # Make email required and unique
     email = models.EmailField(
         unique=True,
