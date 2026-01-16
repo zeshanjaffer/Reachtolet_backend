@@ -35,7 +35,6 @@ def validate_token(request):
         "valid": True,
         "user": {
             "id": request.user.id,
-            "username": request.user.username,
             "email": request.user.email,
             "user_type": request.user.user_type
         }
@@ -85,7 +84,6 @@ class RegisterView(generics.CreateAPIView):
         return Response({
             'user': {
                 'id': user.id,
-                'username': user.username,
                 'email': user.email,
                 'user_type': user.user_type
             },
@@ -132,10 +130,17 @@ class GoogleLoginView(APIView):
         
         # Get or create user (email is now USERNAME_FIELD, no username needed)
         from .models import User
+        # Combine given_name and family_name into full_name
+        full_name = data.get('name', '')
+        if not full_name:
+            given_name = data.get('given_name', '')
+            family_name = data.get('family_name', '')
+            full_name = f"{given_name} {family_name}".strip()
+        
         user, created = User.objects.get_or_create(email=email, defaults={
-            'name': data.get('name', ''),
-            'first_name': data.get('given_name', ''),
-            'last_name': data.get('family_name', ''),
+            'full_name': full_name or 'Google User',
+            'phone': '+0000000000',  # Placeholder, user should update
+            'country_code': 'US',  # Placeholder, user should update
             'user_type': user_type,
         })
         if created:
@@ -147,7 +152,6 @@ class GoogleLoginView(APIView):
         return Response({
             'user': {
                 'id': user.id,
-                'username': user.username,
                 'email': user.email,
                 'user_type': user.user_type
             },

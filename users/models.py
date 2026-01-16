@@ -52,19 +52,21 @@ class User(AbstractUser):
         help_text='Email address used for login'
     )
     
-    # Country code field (e.g., 'US', 'GB', 'IN')
+    # Full name field (required)
+    full_name = models.CharField(
+        max_length=150,
+        help_text="User's full name"
+    )
+    
+    # Country code field (e.g., 'US', 'GB', 'IN') - required
     country_code = models.CharField(
-        max_length=3, 
-        blank=True, 
-        null=True,
+        max_length=3,
         help_text="ISO 3166-1 alpha-2 country code (e.g., 'US', 'GB', 'IN')"
     )
     
-    # Phone number field with validation
+    # Phone number field with validation - required
     phone = models.CharField(
-        max_length=20, 
-        blank=True, 
-        null=True,
+        max_length=20,
         validators=[
             RegexValidator(
                 regex=r'^\+[1-9]\d{1,14}$',
@@ -114,16 +116,16 @@ class User(AbstractUser):
         """Validate phone number and country code consistency"""
         super().clean()
         
-        if self.phone and not self.country_code:
-            raise models.ValidationError("Country code is required when phone number is provided")
+        # Phone and country_code are both required, so they should always be present
+        if not self.phone:
+            raise models.ValidationError("Phone number is required")
         
-        if self.country_code and not self.phone:
-            raise models.ValidationError("Phone number is required when country code is provided")
+        if not self.country_code:
+            raise models.ValidationError("Country code is required")
         
         # Validate country code format
-        if self.country_code:
-            if not re.match(r'^[A-Z]{2}$', self.country_code):
-                raise models.ValidationError("Country code must be 2 uppercase letters (e.g., 'US', 'GB')")
+        if not re.match(r'^[A-Z]{2}$', self.country_code):
+            raise models.ValidationError("Country code must be 2 uppercase letters (e.g., 'US', 'GB')")
     
     class Meta:
         db_table = 'users_user'

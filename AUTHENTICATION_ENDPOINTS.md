@@ -15,44 +15,36 @@
 **Required Fields:**
 - `email` (required) - Must be unique
 - `password` (required)
+- `full_name` (required) - User's full name
+- `phone` (required) - Must be in international format (e.g., +1234567890)
+- `country_code` (required) - ISO 3166-1 alpha-2 code (e.g., US, GB)
 - `user_type` (required) - Must be "advertiser" or "media_owner"
 
-**Optional Fields:**
-- `username` (optional) - Must be unique if provided, min 3 characters, alphanumeric and underscore only
-- `first_name` (optional)
-- `last_name` (optional)
-- `name` (optional)
-- `phone` (optional) - Must be in international format (e.g., +1234567890)
-- `country_code` (optional) - ISO 3166-1 alpha-2 code (e.g., US, GB)
-
-**cURL (With Username and Email):**
+**cURL (Advertiser):**
 ```bash
 curl --location 'http://44.200.108.209:8000/api/users/register/' \
 --header 'Content-Type: application/json' \
 --data-raw '{
-    "username": "johndoe",
     "email": "advertiser@example.com",
     "password": "TestPassword123!",
-    "first_name": "John",
-    "last_name": "Doe",
+    "full_name": "John Doe",
     "user_type": "advertiser",
     "phone": "+1234567890",
     "country_code": "US"
 }'
 ```
 
-**cURL (Email Only - No Username):**
+**cURL (Media Owner):**
 ```bash
 curl --location 'http://44.200.108.209:8000/api/users/register/' \
 --header 'Content-Type: application/json' \
 --data-raw '{
     "email": "owner@example.com",
     "password": "TestPassword123!",
-    "first_name": "Jane",
-    "last_name": "Smith",
+    "full_name": "Jane Smith",
     "user_type": "media_owner",
-    "phone": "+1234567890",
-    "country_code": "US"
+    "phone": "+9876543210",
+    "country_code": "GB"
 }'
 ```
 
@@ -61,7 +53,6 @@ curl --location 'http://44.200.108.209:8000/api/users/register/' \
 {
     "user": {
         "id": 1,
-        "username": "johndoe",
         "email": "advertiser@example.com",
         "user_type": "advertiser"
     },
@@ -76,6 +67,9 @@ curl --location 'http://44.200.108.209:8000/api/users/register/' \
 {
     "email": ["This field is required."],
     "password": ["This field is required."],
+    "full_name": ["This field is required."],
+    "phone": ["This field is required."],
+    "country_code": ["This field is required."],
     "user_type": ["This field is required."]
 }
 ```
@@ -205,9 +199,7 @@ curl --location 'http://44.200.108.209:8000/api/users/profile/' \
     "phone": "+1234567890",
     "country_code": "US",
     "formatted_phone": "US +1234567890",
-    "name": "John Doe",
-    "first_name": "John",
-    "last_name": "Doe",
+    "full_name": "John Doe",
     "profile_image": "http://44.200.108.209:8000/media/profile_images/user.jpg",
     "user_type": "advertiser"
 }
@@ -225,8 +217,7 @@ curl --location --request PATCH 'http://44.200.108.209:8000/api/users/profile/' 
 --header 'Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...' \
 --header 'Content-Type: application/json' \
 --data-raw '{
-    "first_name": "Jane",
-    "last_name": "Smith",
+    "full_name": "Jane Smith",
     "phone": "+9876543210",
     "country_code": "GB"
 }'
@@ -240,8 +231,7 @@ curl --location --request PATCH 'http://44.200.108.209:8000/api/users/profile/' 
     "phone": "+9876543210",
     "country_code": "GB",
     "formatted_phone": "GB +9876543210",
-    "first_name": "Jane",
-    "last_name": "Smith",
+    "full_name": "Jane Smith",
     "user_type": "advertiser"
 }
 ```
@@ -338,8 +328,13 @@ curl --location 'http://44.200.108.209:8000/api/users/country-codes/'
   - `"media_owner"` - For users who own billboards/media spaces
 - **Authentication:** Protected endpoints require `Authorization: Bearer <access_token>` header
 - **Token Expiry:** Access tokens expire; use refresh token endpoint to get new access token
-- **Optional Fields:** `phone`, `country_code`, `first_name`, `last_name` are optional in signup
-- **Required Fields:** `email`, `password`, `user_type` are required in signup
+- **Required Fields in Signup:** 
+  - `email` (required)
+  - `password` (required)
+  - `full_name` (required)
+  - `phone` (required) - Must be in international format (e.g., +1234567890)
+  - `country_code` (required) - ISO 3166-1 alpha-2 code (e.g., US, GB)
+  - `user_type` (required) - Must be "advertiser" or "media_owner"
 
 ---
 

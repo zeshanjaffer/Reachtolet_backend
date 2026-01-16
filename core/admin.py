@@ -136,7 +136,7 @@ class WishlistAdmin(admin.ModelAdmin):
 class UserAdmin(admin.ModelAdmin):
     list_display = ('id', 'email', 'name', 'phone', 'is_active', 'date_joined', 'billboard_count')
     list_filter = ('is_active', 'is_staff', 'date_joined', 'last_login')
-    search_fields = ('email', 'name', 'phone')
+    search_fields = ('email', 'full_name', 'phone')
     readonly_fields = ('date_joined', 'last_login', 'profile_image_preview')
     list_editable = ('is_active',)
     date_hierarchy = 'date_joined'
@@ -144,7 +144,7 @@ class UserAdmin(admin.ModelAdmin):
     
     fieldsets = (
         ('Personal Information', {
-            'fields': ('email', 'name', 'first_name', 'last_name', 'phone')
+            'fields': ('email', 'full_name', 'phone', 'country_code')
         }),
         ('Profile', {
             'fields': ('profile_image', 'profile_image_preview')

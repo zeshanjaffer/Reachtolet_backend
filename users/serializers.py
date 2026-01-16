@@ -72,7 +72,6 @@ class CustomTokenObtainPairSerializer(TokenObtainPairSerializer):
             'user': {
                 'id': user.id,
                 'email': user.email,
-                'username': user.username,
                 'user_type': user.user_type
             }
         }
@@ -84,7 +83,7 @@ class UserSerializer(serializers.ModelSerializer):
     
     class Meta:
         model = User
-        fields = ['id', 'username', 'email', 'phone', 'country_code', 'formatted_phone', 'name', 'first_name', 'last_name', 'profile_image', 'user_type']
+        fields = ['id', 'username', 'email', 'phone', 'country_code', 'formatted_phone', 'full_name', 'profile_image', 'user_type']
     
     def get_formatted_phone(self, obj):
         """Return formatted phone number with country code"""
@@ -92,7 +91,9 @@ class UserSerializer(serializers.ModelSerializer):
 
 class RegisterSerializer(serializers.ModelSerializer):
     password = serializers.CharField(write_only=True, required=True, validators=[validate_password])
-    country_code = serializers.CharField(max_length=3, required=False, allow_blank=True)
+    full_name = serializers.CharField(max_length=150, required=True)
+    phone = serializers.CharField(max_length=20, required=True)
+    country_code = serializers.CharField(max_length=3, required=True)
     username = serializers.CharField(max_length=150, required=False, allow_blank=True, allow_null=True)
     user_type = serializers.ChoiceField(
         choices=User.USER_TYPE_CHOICES,
@@ -102,7 +103,7 @@ class RegisterSerializer(serializers.ModelSerializer):
     
     class Meta:
         model = User
-        fields = ['id', 'username', 'email', 'phone', 'country_code', 'name', 'first_name', 'last_name', 'password', 'user_type']
+        fields = ['id', 'username', 'email', 'phone', 'country_code', 'full_name', 'password', 'user_type']
         extra_kwargs = {
             'username': {'required': False, 'allow_blank': True, 'allow_null': True}
         }
@@ -162,33 +163,36 @@ class RegisterSerializer(serializers.ModelSerializer):
     
     def validate(self, data):
         """Validate phone and country code consistency"""
-        # Ensure user_type is provided
+        # Ensure required fields are provided
         if 'user_type' not in data:
             raise serializers.ValidationError({
                 'user_type': 'This field is required.'
             })
         
-        # Ensure either email or username is provided (email is always required)
         if not data.get('email'):
             raise serializers.ValidationError({
                 'email': 'Email is required.'
             })
         
+        if not data.get('full_name'):
+            raise serializers.ValidationError({
+                'full_name': 'Full name is required.'
+            })
+        
+        if not data.get('phone'):
+            raise serializers.ValidationError({
+                'phone': 'Phone number is required.'
+            })
+        
+        if not data.get('country_code'):
+            raise serializers.ValidationError({
+                'country_code': 'Country code is required.'
+            })
+        
         phone = data.get('phone', '').strip()
         country_code = data.get('country_code', '').strip()
         
-        # Both phone and country_code are optional, but if one is provided, both should be
-        if phone and not country_code:
-            raise serializers.ValidationError({
-                "country_code": "Country code is required when phone number is provided"
-            })
-        
-        if country_code and not phone:
-            raise serializers.ValidationError({
-                "phone": "Phone number is required when country code is provided"
-            })
-        
-        # Validate phone number for specific country only if both are provided
+        # Validate phone number for specific country
         if phone and country_code:
             is_valid, error_message = validate_phone_for_country(phone, country_code)
             if not is_valid:
@@ -199,9 +203,6 @@ class RegisterSerializer(serializers.ModelSerializer):
         return data
 
     def create(self, validated_data):
-        # Clean phone and country_code - set to empty string if None
-        phone = validated_data.get('phone', '') or ''
-        country_code = validated_data.get('country_code', '') or ''
         username = validated_data.get('username', '').strip() or None
         
         # Create user with email and optional username
@@ -209,11 +210,9 @@ class RegisterSerializer(serializers.ModelSerializer):
             email=validated_data['email'],
             password=validated_data['password'],
             username=username,
-            phone=phone,
-            country_code=country_code,
-            name=validated_data.get('name', ''),
-            first_name=validated_data.get('first_name', ''),
-            last_name=validated_data.get('last_name', ''),
+            phone=validated_data['phone'],
+            country_code=validated_data['country_code'],
+            full_name=validated_data['full_name'],
             user_type=validated_data.get('user_type', 'advertiser'),
         )
         return user
@@ -223,7 +222,7 @@ class UserProfileUpdateSerializer(serializers.ModelSerializer):
     
     class Meta:
         model = User
-        fields = ['id', 'email', 'phone', 'country_code', 'formatted_phone', 'name', 'first_name', 'last_name', 'profile_image', 'user_type']
+        fields = ['id', 'email', 'phone', 'country_code', 'formatted_phone', 'full_name', 'profile_image', 'user_type']
         read_only_fields = ['id', 'email', 'user_type']
     
     def get_formatted_phone(self, obj):
@@ -274,18 +273,10 @@ class UserProfileUpdateSerializer(serializers.ModelSerializer):
         phone = data.get('phone')
         country_code = data.get('country_code')
         
-        if phone and not country_code:
-            raise serializers.ValidationError({
-                "country_code": "Country code is required when phone number is provided"
-            })
-        
-        if country_code and not phone:
-            raise serializers.ValidationError({
-                "phone": "Phone number is required when country code is provided"
-            })
-        
-        # Validate phone number for specific country
-        if phone and country_code:
+        # Phone and country_code are both required, so they should always be present
+        # But in update, they might not be in data if not being updated
+        if phone is not None and country_code is not None:
+            # Validate phone number for specific country
             is_valid, error_message = validate_phone_for_country(phone, country_code)
             if not is_valid:
                 raise serializers.ValidationError({
