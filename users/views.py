@@ -85,6 +85,9 @@ class RegisterView(generics.CreateAPIView):
             'user': {
                 'id': user.id,
                 'email': user.email,
+                'full_name': user.full_name,
+                'phone': user.phone,
+                'country_code': user.country_code,
                 'user_type': user.user_type
             },
             'refresh': str(refresh),

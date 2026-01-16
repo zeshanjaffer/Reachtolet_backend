@@ -16,11 +16,17 @@
 - `email` (required) - Must be unique
 - `password` (required)
 - `full_name` (required) - User's full name
-- `phone` (required) - Must be in international format (e.g., +1234567890)
+- `phone` (required) - Must be in international format with country code included (e.g., +12345678901 for US)
 - `country_code` (required) - ISO 3166-1 alpha-2 code (e.g., US, GB)
 - `user_type` (required) - Must be "advertiser" or "media_owner"
 
-**cURL (Advertiser):**
+**Phone Number Format:**
+- **US/Canada:** `+1` followed by 10 digits (e.g., `+12345678901`)
+- **UK:** `+44` followed by 10-11 digits (e.g., `+441234567890`)
+- **India:** `+91` followed by 10 digits (e.g., `+911234567890`)
+- The phone number must include the country's dial code prefix
+
+**cURL (Advertiser - US):**
 ```bash
 curl --location 'http://44.200.108.209:8000/api/users/register/' \
 --header 'Content-Type: application/json' \
@@ -29,12 +35,12 @@ curl --location 'http://44.200.108.209:8000/api/users/register/' \
     "password": "TestPassword123!",
     "full_name": "John Doe",
     "user_type": "advertiser",
-    "phone": "+1234567890",
+    "phone": "+12345678901",
     "country_code": "US"
 }'
 ```
 
-**cURL (Media Owner):**
+**cURL (Media Owner - UK):**
 ```bash
 curl --location 'http://44.200.108.209:8000/api/users/register/' \
 --header 'Content-Type: application/json' \
@@ -43,7 +49,7 @@ curl --location 'http://44.200.108.209:8000/api/users/register/' \
     "password": "TestPassword123!",
     "full_name": "Jane Smith",
     "user_type": "media_owner",
-    "phone": "+9876543210",
+    "phone": "+441234567890",
     "country_code": "GB"
 }'
 ```
@@ -54,6 +60,9 @@ curl --location 'http://44.200.108.209:8000/api/users/register/' \
     "user": {
         "id": 1,
         "email": "advertiser@example.com",
+        "full_name": "John Doe",
+        "phone": "+12345678901",
+        "country_code": "US",
         "user_type": "advertiser"
     },
     "access": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...",
@@ -332,7 +341,10 @@ curl --location 'http://44.200.108.209:8000/api/users/country-codes/'
   - `email` (required)
   - `password` (required)
   - `full_name` (required)
-  - `phone` (required) - Must be in international format (e.g., +1234567890)
+  - `phone` (required) - Must be in international format with country dial code included
+    - US/Canada: `+1` + 10 digits (e.g., `+12345678901`)
+    - UK: `+44` + 10-11 digits (e.g., `+441234567890`)
+    - India: `+91` + 10 digits (e.g., `+911234567890`)
   - `country_code` (required) - ISO 3166-1 alpha-2 code (e.g., US, GB)
   - `user_type` (required) - Must be "advertiser" or "media_owner"
 
