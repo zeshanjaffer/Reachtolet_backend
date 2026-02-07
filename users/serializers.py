@@ -203,7 +203,7 @@ class RegisterSerializer(serializers.ModelSerializer):
         return data
 
     def create(self, validated_data):
-        username = validated_data.get('username', '').strip() or None
+        username = (validated_data.get('username') or '').strip() or None
         
         # Create user with email and optional username
         user = User.objects.create_user(
