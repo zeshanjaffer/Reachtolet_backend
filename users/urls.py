@@ -1,6 +1,6 @@
 from django.urls import path
 from rest_framework_simplejwt.views import TokenRefreshView
-from .views import RegisterView, UserProfileView, GoogleLoginView, upload_profile_image, HealthCheckView, validate_token, get_country_codes, CustomTokenObtainPairView
+from .views import RegisterView, UserProfileView, GoogleLoginView, upload_profile_image, HealthCheckView, validate_token, get_country_codes, CustomTokenObtainPairView, LogoutView
 
 urlpatterns = [
     path('register/', RegisterView.as_view(), name='register'),
@@ -11,5 +11,6 @@ urlpatterns = [
     path('profile/', UserProfileView.as_view(), name='user-profile'),
     path('google-login/', GoogleLoginView.as_view(), name='google-login'),
     path('upload-profile-image/', upload_profile_image, name='upload-profile-image'),
+    path('logout/', LogoutView.as_view(), name='logout'),
     path('health/', HealthCheckView.as_view(), name='health-check'),
 ]

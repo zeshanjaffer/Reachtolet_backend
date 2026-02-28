@@ -8,6 +8,7 @@ from rest_framework.views import APIView
 from rest_framework_simplejwt.tokens import RefreshToken
 from rest_framework.decorators import api_view, permission_classes
 from rest_framework.parsers import MultiPartParser, FormParser
+from rest_framework_simplejwt.token_blacklist.models import BlacklistedToken, OutstandingToken
 from django.conf import settings
 from django.core.files.storage import default_storage
 from .country_codes import get_all_country_codes, COUNTRY_CODES
@@ -23,6 +24,35 @@ GOOGLE_CLIENT_ID = "971707519453-srarmkadprdmpgv385312cgfckok9eku.apps.googleuse
 class CustomTokenObtainPairView(TokenObtainPairView):
     """Custom login view that accepts email instead of username"""
     serializer_class = CustomTokenObtainPairSerializer
+
+class LogoutView(APIView):
+    """
+    Logout view that blacklists the refresh token.
+    This requires 'rest_framework_simplejwt.token_blacklist' to be in INSTALLED_APPS.
+    """
+    permission_classes = (permissions.IsAuthenticated,)
+
+    def post(self, request):
+        try:
+            refresh_token = request.data.get("refresh")
+            if not refresh_token:
+                return Response(
+                    {"detail": "Refresh token is required."}, 
+                    status=status.HTTP_400_BAD_REQUEST
+                )
+            
+            token = RefreshToken(refresh_token)
+            token.blacklist()
+
+            return Response(
+                {"message": "Logged out successfully."}, 
+                status=status.HTTP_200_OK
+            )
+        except Exception as e:
+            return Response(
+                {"detail": "Invalid or expired token."}, 
+                status=status.HTTP_400_BAD_REQUEST
+            )
 
 @api_view(['GET'])
 @permission_classes([permissions.IsAuthenticated])
