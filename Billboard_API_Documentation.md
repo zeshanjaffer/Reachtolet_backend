@@ -218,8 +218,95 @@ curl -X PATCH "http://44.200.108.209:8000/api/billboards/1/toggle-active/" \
 
 ---
 
+## 7. User Authentication & Session
+Endpoints for managing user sessions and tokens.
+
+### POST: Logout
+Signals the server to end the session. Client should clear local tokens after receiving success.
+**Endpoint:** `/api/users/logout/`
+
+**cURL:**
+```bash
+curl -X POST "http://44.200.108.209:8000/api/users/logout/" \
+     -H "Authorization: Bearer <your_access_token>"
+```
+
+**Expected Response (200 OK):**
+```json
+{
+    "message": "Logged out successfully."
+}
+```
+
+### GET: Validate Token
+Checks if the current access token is valid and returns basic user info.
+**Endpoint:** `/api/users/validate-token/`
+
+**cURL:**
+```bash
+curl -X GET "http://44.200.108.209:8000/api/users/validate-token/" \
+     -H "Authorization: Bearer <your_access_token>"
+```
+
+**Expected Response (200 OK):**
+```json
+{
+    "valid": true,
+    "user": {
+        "id": 48,
+        "email": "zeej@gmail.com",
+        "user_type": "advertiser"
+    }
+}
+```
+
+### POST: Refresh Token
+Exchange a refresh token for a brand new access and refresh token pair.
+**Endpoint:** `/api/users/token/refresh/`
+
+**cURL:**
+```bash
+curl -X POST "http://44.200.108.209:8000/api/users/token/refresh/" \
+     -H "Content-Type: application/json" \
+     -d '{
+        "refresh": "<your_refresh_token>"
+     }'
+```
+
+---
+
+## 8. Admin Approval Workflow
+Endpoints for administrators to manage billboard listings.
+
+### GET: List Pending Billboards
+Retrieves all billboards currently in 'pending' status. **Requires Admin privileges.**
+**Endpoint:** `/api/billboards/pending/`
+
+**cURL:**
+```bash
+curl -X GET "http://44.200.108.209:8000/api/billboards/pending/" \
+     -H "Authorization: Bearer <admin_token>"
+```
+
+### POST: Update Approval Status
+Approve or reject a specific billboard. **Requires Admin privileges.**
+**Endpoint:** `/api/billboards/<id>/approval-status/`
+
+**cURL (Approve):**
+```bash
+curl -X POST "http://44.200.108.209:8000/api/billboards/1/approval-status/" \
+     -H "Content-Type: application/json" \
+     -H "Authorization: Bearer <admin_token>" \
+     -d '{
+        "action": "approve"
+     }'
+```
+
+---
+
 ### Implementation Notes:
 1.  **Authentication:** All protected endpoints require a `Bearer` token in the `Authorization` header.
-2.  **Role Restriction:** Most write operations (`POST`, `PATCH`, `DELETE`) are restricted to `media_owner` user types.
-3.  **Approval Workflow:** New billboards are created with `pending` status and must be approved by an administrator before appearing in the public list.
-4.  **View Tracking:** The tracking system handles duplicate prevention based on IP address and authenticated user ID.
+2.  **Role Restriction:** Write operations are restricted based on user type (`media_owner` for creation, `admin` for approval).
+3.  **Token Rotation:** Refreshing a token invalidates the old refresh token and provides a new one.
+4.  **Logout:** Simple post-auth endpoint to signal session end.
+
