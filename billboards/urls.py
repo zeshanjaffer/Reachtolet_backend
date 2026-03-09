@@ -2,7 +2,6 @@ from django.urls import path
 from .views import (
     BillboardListCreateView, 
     BillboardDetailView, 
-    BillboardImageUploadView, 
     MyBillboardsView,
     WishlistView,
     WishlistRemoveView,
@@ -20,7 +19,6 @@ urlpatterns = [
     path('', BillboardListCreateView.as_view(), name='billboard-list-create'),
     path('my-billboards/', MyBillboardsView.as_view(), name='my-billboards'),
     path('<int:pk>/', BillboardDetailView.as_view(), name='billboard-detail'),
-    path('upload-image/', BillboardImageUploadView.as_view(), name='billboard-upload-image'),
     path('<int:billboard_id>/track-view/', track_billboard_view, name='track-billboard-view'),
     path('<int:billboard_id>/increment-view/', track_billboard_view, name='increment-billboard-view'),
     path('<int:billboard_id>/toggle-active/', toggle_billboard_active, name='toggle-billboard-active'),

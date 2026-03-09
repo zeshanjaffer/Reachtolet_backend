@@ -72,6 +72,7 @@ class BillboardListCreateView(generics.ListCreateAPIView):
     search_fields = ['city', 'description', 'company_name', 'road_name']
     ordering_fields = ['created_at', 'price_range', 'city', 'views']
     ordering = ['-created_at']
+    parser_classes = (MultiPartParser, FormParser)  # Add parsers for file uploads
 
     def paginate_queryset(self, queryset):
         """
@@ -193,7 +194,7 @@ class BillboardListCreateView(generics.ListCreateAPIView):
 
     def create(self, request, *args, **kwargs):
         """
-        Override create to check user role before allowing billboard creation
+        Override create to handle image uploads and check user role
         """
         # Check if user is authenticated
         if not request.user.is_authenticated:
@@ -206,6 +207,65 @@ class BillboardListCreateView(generics.ListCreateAPIView):
             return Response({
                 'detail': 'Only media owners can create billboards. You are registered as an advertiser.'
             }, status=status.HTTP_403_FORBIDDEN)
+        
+        # Handle image uploads
+        image_urls = []
+        if request.FILES:
+            for file_key, file_obj in request.FILES.items():
+                if file_key.startswith('images'):  # Accept multiple images like images_0, images_1, etc.
+                    try:
+                        # Validate file type
+                        allowed_types = ['image/jpeg', 'image/png', 'image/gif', 'image/webp', 'image/jpg']
+                        if file_obj.content_type not in allowed_types:
+                            return Response({
+                                'detail': f'Invalid file type for {file_key}: {file_obj.content_type}'
+                            }, status=status.HTTP_400_BAD_REQUEST)
+                        
+                        # Validate file size (10MB limit)
+                        max_size = 10 * 1024 * 1024
+                        if file_obj.size > max_size:
+                            return Response({
+                                'detail': f'File too large for {file_key}. Maximum size is 10MB.'
+                            }, status=status.HTTP_400_BAD_REQUEST)
+                        
+                        # Generate unique filename
+                        file_extension = os.path.splitext(file_obj.name)[1] if file_obj.name else '.jpg'
+                        if not file_extension:
+                            if file_obj.content_type == 'image/png':
+                                file_extension = '.png'
+                            elif file_obj.content_type in ['image/jpeg', 'image/jpg']:
+                                file_extension = '.jpg'
+                            elif file_obj.content_type == 'image/gif':
+                                file_extension = '.gif'
+                            elif file_obj.content_type == 'image/webp':
+                                file_extension = '.webp'
+                            else:
+                                file_extension = '.jpg'
+                        
+                        unique_filename = f"{uuid.uuid4().hex}{file_extension}"
+                        file_path = f'billboards/{unique_filename}'
+                        
+                        # Save file
+                        path = default_storage.save(file_path, file_obj)
+                        
+                        # Generate URL
+                        image_url = request.build_absolute_uri(f'{settings.MEDIA_URL}{path}')
+                        image_urls.append(image_url)
+                        
+                    except Exception as e:
+                        return Response({
+                            'detail': f'Upload failed for {file_key}: {str(e)}'
+                        }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+        
+        # Add uploaded image URLs to the request data
+        if image_urls:
+            # If images already in data, extend it; otherwise, set it
+            existing_images = request.data.getlist('images', [])
+            if isinstance(existing_images, list):
+                existing_images.extend(image_urls)
+            else:
+                existing_images = image_urls
+            request.data['images'] = existing_images
         
         # Proceed with normal creation
         return super().create(request, *args, **kwargs)
@@ -507,6 +567,61 @@ def track_billboard_lead(request, billboard_id):
             'error': 'Failed to track lead'
         }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
+
+@method_decorator(csrf_exempt, name='dispatch')
+class BillboardImageUploadView(APIView):
+    parser_classes = (MultiPartParser, FormParser)
+    permission_classes = [permissions.IsAuthenticated]
+
+    def post(self, request, format=None):
+        # Check if user is a media owner
+        if request.user.user_type != 'media_owner':
+            return Response({
+                'detail': 'Only media owners can upload billboard images.'
+            }, status=status.HTTP_403_FORBIDDEN)
+        
+        try:
+            file_obj = request.FILES.get('image')
+            if not file_obj:
+                return Response({'detail': 'No image provided.'}, status=status.HTTP_400_BAD_REQUEST)
+            
+            # Validate file type
+            allowed_types = ['image/jpeg', 'image/png', 'image/gif', 'image/webp', 'image/jpg']
+            if file_obj.content_type not in allowed_types:
+                return Response({'detail': f'Invalid file type: {file_obj.content_type}'}, status=status.HTTP_400_BAD_REQUEST)
+            
+            # Validate file size (10MB limit)
+            max_size = 10 * 1024 * 1024
+            if file_obj.size > max_size:
+                return Response({'detail': 'File too large. Maximum size is 10MB.'}, status=status.HTTP_400_BAD_REQUEST)
+            
+            # Generate unique filename
+            file_extension = os.path.splitext(file_obj.name)[1] if file_obj.name else '.jpg'
+            if not file_extension:
+                if file_obj.content_type == 'image/png':
+                    file_extension = '.png'
+                elif file_obj.content_type in ['image/jpeg', 'image/jpg']:
+                    file_extension = '.jpg'
+                elif file_obj.content_type == 'image/gif':
+                    file_extension = '.gif'
+                elif file_obj.content_type == 'image/webp':
+                    file_extension = '.webp'
+                else:
+                    file_extension = '.jpg'
+            
+            unique_filename = f"{uuid.uuid4().hex}{file_extension}"
+            file_path = f'billboards/{unique_filename}'
+            
+            # Save file
+            path = default_storage.save(file_path, file_obj)
+            
+            # Generate URL
+            image_url = request.build_absolute_uri(f'{settings.MEDIA_URL}{path}')
+            
+            return Response({'url': image_url}, status=status.HTTP_201_CREATED)
+            
+        except Exception as e:
+            return Response({'detail': f'Upload failed: {str(e)}'}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
 @method_decorator(csrf_exempt, name='dispatch')
 class BillboardImageUploadView(APIView):
