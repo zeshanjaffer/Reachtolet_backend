@@ -6,6 +6,8 @@ from .serializers import UserSerializer, RegisterSerializer, UserProfileUpdateSe
 from rest_framework.permissions import AllowAny
 from rest_framework.views import APIView
 from rest_framework_simplejwt.tokens import RefreshToken
+from rest_framework_simplejwt.authentication import JWTAuthentication
+from rest_framework_simplejwt.exceptions import TokenError
 from rest_framework.decorators import api_view, permission_classes
 from rest_framework.parsers import MultiPartParser, FormParser
 from rest_framework_simplejwt.token_blacklist.models import BlacklistedToken, OutstandingToken
@@ -25,16 +27,53 @@ class CustomTokenObtainPairView(TokenObtainPairView):
     """Custom login view that accepts email instead of username"""
     serializer_class = CustomTokenObtainPairSerializer
 
+def _user_from_bearer_access(request):
+    """Return user if Authorization Bearer access token is valid, else None."""
+    auth = JWTAuthentication()
+    header = auth.get_header(request)
+    if header is None:
+        return None
+    try:
+        raw = auth.get_raw_token(header)
+        validated = auth.get_validated_token(raw)
+        return auth.get_user(validated)
+    except Exception:
+        return None
+
+
 class LogoutView(APIView):
     """
-    Simple logout view to signal client to clear tokens.
+    Logout: client should clear stored tokens.
+    Accepts either a valid Bearer access token, or JSON body {"refresh": "..."}.
+    If refresh is sent, it is blacklisted (requires token_blacklist app).
     """
-    permission_classes = (permissions.IsAuthenticated,)
+    permission_classes = (AllowAny,)
 
     def post(self, request):
+        user = _user_from_bearer_access(request)
+        refresh_str = request.data.get("refresh")
+
+        if refresh_str:
+            try:
+                token = RefreshToken(refresh_str)
+                token.blacklist()
+            except TokenError as e:
+                return Response(
+                    {"detail": str(e), "code": "token_not_valid"},
+                    status=status.HTTP_401_UNAUTHORIZED,
+                )
+
+        if user is not None or refresh_str:
+            return Response(
+                {"message": "Logged out successfully."},
+                status=status.HTTP_200_OK,
+            )
+
         return Response(
-            {"message": "Logged out successfully."}, 
-            status=status.HTTP_200_OK
+            {
+                "detail": "Provide Authorization: Bearer <access> and/or a valid refresh token in the JSON body.",
+            },
+            status=status.HTTP_401_UNAUTHORIZED,
         )
 
 @api_view(['GET'])
