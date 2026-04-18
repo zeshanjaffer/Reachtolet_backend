@@ -1,5 +1,6 @@
 from pathlib import Path
 from datetime import timedelta
+import os
 
 BASE_DIR = Path(__file__).resolve().parent.parent
 
@@ -83,6 +84,13 @@ DATABASES = {
     }
 }
 
+# Local/offline: set DJANGO_USE_SQLITE=1 to use SQLite (migrate + smoke tests without Postgres).
+if os.environ.get('DJANGO_USE_SQLITE') == '1':
+    DATABASES['default'] = {
+        'ENGINE': 'django.db.backends.sqlite3',
+        'NAME': BASE_DIR / 'db.sqlite3',
+    }
+
 AUTH_PASSWORD_VALIDATORS = [
     {'NAME': 'django.contrib.auth.password_validation.UserAttributeSimilarityValidator'},
     {'NAME': 'django.contrib.auth.password_validation.MinimumLengthValidator'},
@@ -100,7 +108,6 @@ STATIC_ROOT = BASE_DIR / 'staticfiles'
 
 MEDIA_URL = '/media/'
 MEDIA_ROOT = BASE_DIR / 'media'
-import os
 os.makedirs(MEDIA_ROOT / 'billboards', exist_ok=True)
 
 
@@ -206,7 +213,6 @@ REDOC_SETTINGS = {
     'LAZY_RENDERING': False,
 }
 
-import os
 os.makedirs(MEDIA_ROOT / 'profile_images', exist_ok=True)
 os.makedirs(MEDIA_ROOT / 'billboards', exist_ok=True)
 

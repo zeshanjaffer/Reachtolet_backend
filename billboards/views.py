@@ -1,6 +1,11 @@
 from rest_framework import generics, permissions, status
 from .models import Billboard, Wishlist, Lead, View
-from .serializers import BillboardSerializer, BillboardListSerializer, WishlistSerializer
+from .serializers import (
+    BillboardSerializer,
+    BillboardListSerializer,
+    BillboardPublicSummarySerializer,
+    WishlistSerializer,
+)
 from .filters import BillboardFilter
 from .clustering import cluster_billboards, should_use_clustering
 from django.core.cache import cache
@@ -34,35 +39,46 @@ import logging
 logger = logging.getLogger(__name__)
 
 class BillboardListCreateView(generics.ListCreateAPIView):
-    # OPTIMIZED: Enhanced queryset with select_related and only for better performance
     def get_queryset(self):
-        # Only show approved and active billboards for public map
+        # Public list: narrow SELECT — fields used by BillboardPublicSummarySerializer + filters/order
         return Billboard.objects.filter(
-            is_active=True, 
-            approval_status='approved'
-        )\
-            .select_related('user')\
-            .only(
-                'id', 'city', 'description', 'number_of_boards', 'average_daily_views',
-                'traffic_direction', 'road_position', 'road_name', 'exposure_time',
-                'price_range', 'display_height', 'display_width', 'advertiser_phone',
-                'advertiser_whatsapp', 'company_name', 'company_website',
-                'ooh_media_type', 'ooh_media_id', 'type', 'images', 'unavailable_dates',
-                'latitude', 'longitude', 'views', 'leads', 'is_active', 'created_at',
-                'user__id', 'user__name', 'user__email', 'approval_status'
-            )\
-            .order_by('-created_at')
-    
+            is_active=True,
+            approval_status='approved',
+        ).only(
+            'id',
+            'company_name',
+            'description',
+            'price_range',
+            'is_active',
+            'unavailable_dates',
+            'city',
+            'address',
+            'images',
+            'latitude',
+            'longitude',
+            'type',
+            'ooh_media_type',
+            'created_at',
+            'views',
+        ).order_by('-created_at')
+
     def get_serializer_class(self):
-        # Use lightweight serializer for GET requests, full serializer for POST
         if self.request.method == 'GET':
-            return BillboardListSerializer
+            return BillboardPublicSummarySerializer
         return BillboardSerializer
-    
+
     def get_serializer_context(self):
-        """Add request to serializer context for wishlist check"""
         context = super().get_serializer_context()
         context['request'] = self.request
+        if self.request.method == 'GET':
+            if self.request.user.is_authenticated:
+                context['wishlist_billboard_ids'] = frozenset(
+                    Wishlist.objects.filter(user=self.request.user).values_list(
+                        'billboard_id', flat=True
+                    )
+                )
+            else:
+                context['wishlist_billboard_ids'] = frozenset()
         return context
     
     permission_classes = [permissions.AllowAny]
@@ -286,26 +302,22 @@ class BillboardListCreateView(generics.ListCreateAPIView):
         return super().get(request, *args, **kwargs)
 
 class BillboardDetailView(generics.RetrieveUpdateDestroyAPIView):
-    # OPTIMIZED: Enhanced queryset for single billboard view
     def get_queryset(self):
-        queryset = Billboard.objects.select_related('user')\
-            .only(
-                'id', 'city', 'description', 'number_of_boards', 'average_daily_views',
-                'traffic_direction', 'road_position', 'road_name', 'exposure_time',
-                'price_range', 'display_height', 'display_width', 'advertiser_phone',
-                'advertiser_whatsapp', 'company_name', 'company_website',
-                'ooh_media_type', 'ooh_media_id', 'type', 'images', 'unavailable_dates',
-                'latitude', 'longitude', 'views', 'leads', 'is_active', 'created_at',
-                'user__id', 'user__name', 'user__email'
-            )
-        return queryset
-    
+        return Billboard.objects.select_related('user', 'approved_by', 'rejected_by')
+
     serializer_class = BillboardSerializer
-    
+
     def get_serializer_context(self):
-        """Add request to serializer context for wishlist check"""
         context = super().get_serializer_context()
         context['request'] = self.request
+        if self.request.user.is_authenticated:
+            context['wishlist_billboard_ids'] = frozenset(
+                Wishlist.objects.filter(user=self.request.user).values_list(
+                    'billboard_id', flat=True
+                )
+            )
+        else:
+            context['wishlist_billboard_ids'] = frozenset()
         return context
     
     def get_permissions(self):
@@ -386,19 +398,19 @@ class MyBillboardsView(generics.ListAPIView):
         return super().get(request, *args, **kwargs)
 
     def get_queryset(self):
-        # OPTIMIZED: Enhanced queryset for user's billboards with ALL fields and ALL statuses
-        return Billboard.objects.filter(user=self.request.user)\
-            .select_related('user')\
-            .only(
-                'id', 'city', 'description', 'number_of_boards', 'average_daily_views',
-                'traffic_direction', 'road_position', 'road_name', 'exposure_time',
-                'price_range', 'display_height', 'display_width', 'advertiser_phone',
-                'advertiser_whatsapp', 'company_name', 'company_website',
-                'ooh_media_type', 'ooh_media_id', 'type', 'images', 'unavailable_dates',
-                'latitude', 'longitude', 'views', 'leads', 'is_active', 'created_at',
-                'user__id', 'user__name', 'user__email', 'approval_status', 'approved_at',
-                'rejected_at', 'rejection_reason', 'approved_by', 'rejected_by'
+        return Billboard.objects.filter(user=self.request.user).select_related(
+            'user', 'approved_by', 'rejected_by'
+        )
+
+    def get_serializer_context(self):
+        context = super().get_serializer_context()
+        context['request'] = self.request
+        context['wishlist_billboard_ids'] = frozenset(
+            Wishlist.objects.filter(user=self.request.user).values_list(
+                'billboard_id', flat=True
             )
+        )
+        return context
 
 
 class WishlistView(generics.ListCreateAPIView):
@@ -412,7 +424,11 @@ class WishlistView(generics.ListCreateAPIView):
     ordering = ['-created_at']
 
     def get_queryset(self):
-        return Wishlist.objects.filter(user=self.request.user)
+        return Wishlist.objects.filter(user=self.request.user).select_related(
+            'billboard__user',
+            'billboard__approved_by',
+            'billboard__rejected_by',
+        )
 
     def create(self, request, *args, **kwargs):
         """Add a billboard to wishlist"""
@@ -1018,9 +1034,23 @@ def get_pending_billboards(request):
     try:
         pending_billboards = Billboard.objects.filter(
             approval_status='pending'
-        ).select_related('user').order_by('-created_at')
-        
-        serializer = BillboardSerializer(pending_billboards, many=True)
+        ).select_related(
+            'user',
+            'approved_by',
+            'rejected_by',
+        ).order_by('-created_at')
+        wishlist_ids = frozenset()
+        if request.user.is_authenticated:
+            wishlist_ids = frozenset(
+                Wishlist.objects.filter(user=request.user).values_list(
+                    'billboard_id', flat=True
+                )
+            )
+        serializer = BillboardSerializer(
+            pending_billboards,
+            many=True,
+            context={'request': request, 'wishlist_billboard_ids': wishlist_ids},
+        )
         
         return Response({
             'results': serializer.data,

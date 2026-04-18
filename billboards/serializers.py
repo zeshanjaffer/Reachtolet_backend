@@ -1,6 +1,62 @@
 from rest_framework import serializers
 from .models import Billboard, Wishlist
 
+
+def _wishlist_ids_for_user(request):
+    if not request or not request.user.is_authenticated:
+        return frozenset()
+    return frozenset(
+        Wishlist.objects.filter(user=request.user).values_list('billboard_id', flat=True)
+    )
+
+
+class BillboardPublicSummarySerializer(serializers.ModelSerializer):
+    """
+    Minimal payload for public list/map endpoints — fewer columns and no N+1 wishlist queries.
+    """
+    name = serializers.CharField(source='company_name', read_only=True)
+    price = serializers.CharField(source='price_range', read_only=True)
+    image = serializers.SerializerMethodField()
+    availability = serializers.SerializerMethodField()
+    is_in_wishlist = serializers.SerializerMethodField()
+
+    class Meta:
+        model = Billboard
+        fields = [
+            'id',
+            'name',
+            'description',
+            'price',
+            'availability',
+            'city',
+            'address',
+            'image',
+            'latitude',
+            'longitude',
+            'type',
+            'ooh_media_type',
+            'is_in_wishlist',
+        ]
+
+    def get_image(self, obj):
+        images = obj.images or []
+        if isinstance(images, list) and len(images) > 0:
+            return images[0]
+        return None
+
+    def get_availability(self, obj):
+        return {
+            'is_active': obj.is_active,
+            'unavailable_dates': obj.unavailable_dates or [],
+        }
+
+    def get_is_in_wishlist(self, obj):
+        ids = self.context.get('wishlist_billboard_ids')
+        if ids is not None:
+            return obj.pk in ids
+        return obj.pk in _wishlist_ids_for_user(self.context.get('request'))
+
+
 class BillboardSerializer(serializers.ModelSerializer):
     # OPTIMIZED: Add user_name field for better performance
     user_name = serializers.CharField(source='user.name', read_only=True)
@@ -36,10 +92,13 @@ class BillboardSerializer(serializers.ModelSerializer):
 
     def get_is_in_wishlist(self, obj):
         """Check if the current user has this billboard in their wishlist"""
+        ids = self.context.get('wishlist_billboard_ids')
+        if ids is not None:
+            return obj.pk in ids
         request = self.context.get('request')
         if request and request.user.is_authenticated:
             return Wishlist.objects.filter(user=request.user, billboard=obj).exists()
-        return False  # Not authenticated or no request context
+        return False
 
     def create(self, validated_data):
         # Set the user from the request
@@ -82,10 +141,13 @@ class BillboardListSerializer(serializers.ModelSerializer):
     
     def get_is_in_wishlist(self, obj):
         """Check if the current user has this billboard in their wishlist"""
+        ids = self.context.get('wishlist_billboard_ids')
+        if ids is not None:
+            return obj.pk in ids
         request = self.context.get('request')
         if request and request.user.is_authenticated:
             return Wishlist.objects.filter(user=request.user, billboard=obj).exists()
-        return False  # Not authenticated or no request context
+        return False
 
 
 class WishlistSerializer(serializers.ModelSerializer):

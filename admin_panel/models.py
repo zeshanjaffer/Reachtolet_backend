@@ -61,6 +61,10 @@ class AdminNotificationCampaign(models.Model):
     class Meta:
         ordering = ['-created_at']
         db_table = 'admin_panel_notification_campaign'
+        indexes = [
+            models.Index(fields=['status', 'created_at']),
+            models.Index(fields=['recipient_type', 'status']),
+        ]
     
     def __str__(self):
         return f"{self.title} - {self.get_status_display()}"
@@ -123,6 +127,10 @@ class AdminNotificationRecipient(models.Model):
         unique_together = ['campaign', 'user']
         ordering = ['-created_at']
         db_table = 'admin_panel_notification_recipient'
+        indexes = [
+            models.Index(fields=['campaign', 'status']),
+            models.Index(fields=['user', 'status']),
+        ]
     
     def __str__(self):
         return f"{self.campaign.title} - {self.user.email} - {self.get_status_display()}"

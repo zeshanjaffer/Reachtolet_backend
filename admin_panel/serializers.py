@@ -93,6 +93,9 @@ class AdminNotificationCampaignSerializer(serializers.ModelSerializer):
     
     def get_recipient_count(self, obj):
         """Get the number of recipients for this campaign"""
+        annotated = getattr(obj, '_recipient_count', None)
+        if annotated is not None:
+            return annotated
         return obj.recipients.count()
     
     def get_delivery_rate(self, obj):
@@ -161,15 +164,27 @@ class UserListSerializer(serializers.ModelSerializer):
     
     def get_user_type(self, obj):
         """Determine user type based on billboards"""
+        _undef = object()
+        hb = getattr(obj, '_has_billboard', _undef)
+        hw = getattr(obj, '_has_wishlist', _undef)
+        if hb is not _undef and hw is not _undef:
+            if hb:
+                return 'billboard_owner'
+            if hw:
+                return 'advertiser'
+            return 'user'
         if obj.billboards.exists():
             return 'billboard_owner'
-        elif obj.wishlist_items.exists():
+        if obj.wishlist_items.exists():
             return 'advertiser'
-        else:
-            return 'user'
-    
+        return 'user'
+
     def get_has_fcm_token(self, obj):
         """Check if user has active FCM token"""
+        _undef = object()
+        v = getattr(obj, '_has_active_device', _undef)
+        if v is not _undef:
+            return bool(v)
         return obj.device_tokens.filter(is_active=True).exists()
 
 class NotificationStatsSerializer(serializers.Serializer):

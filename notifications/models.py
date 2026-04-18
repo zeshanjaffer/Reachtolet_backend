@@ -71,6 +71,8 @@ class PushNotification(models.Model):
         ordering = ['-sent_at']
         indexes = [
             models.Index(fields=['recipient', 'notification_type']),
+            models.Index(fields=['recipient', 'sent_at']),
+            models.Index(fields=['recipient', 'opened']),
             models.Index(fields=['fcm_token', 'delivered']),
             models.Index(fields=['sent_at']),
         ]
@@ -182,18 +184,22 @@ class NotificationTemplate(models.Model):
     name = models.CharField(max_length=100, unique=True)
     notification_type = models.CharField(
         max_length=50,
-        choices=NotificationType.choices
+        choices=NotificationType.choices,
+        db_index=True,
     )
     title_template = models.CharField(max_length=255)
     body_template = models.TextField()
     data_template = models.JSONField(default=dict, blank=True)
-    is_active = models.BooleanField(default=True)
+    is_active = models.BooleanField(default=True, db_index=True)
     
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
     
     class Meta:
         db_table = 'notifications_notification_template'
+        indexes = [
+            models.Index(fields=['is_active', 'notification_type']),
+        ]
     
     def __str__(self):
         return f"{self.name} - {self.notification_type}"

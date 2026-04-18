@@ -124,3 +124,6 @@ class User(AbstractUser):
     
     class Meta:
         db_table = 'users_user'
+        indexes = [
+            models.Index(fields=['user_type', 'is_active']),
+        ]

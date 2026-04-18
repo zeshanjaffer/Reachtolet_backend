@@ -4,10 +4,12 @@ from rest_framework.response import Response
 from rest_framework.pagination import PageNumberPagination
 from rest_framework.permissions import AllowAny
 from rest_framework_simplejwt.tokens import RefreshToken
-from django.db.models import Q, Count, F
+from django.db.models import Q, Count, F, Exists, OuterRef, Prefetch
 from django.utils import timezone
 from django.db import transaction
 from django.contrib.auth import get_user_model, authenticate
+from billboards.models import Billboard, Wishlist
+from notifications.models import DeviceToken
 from django.core.paginator import Paginator
 from datetime import datetime, timedelta
 import logging
@@ -50,9 +52,15 @@ class CampaignListCreateView(generics.ListCreateAPIView):
     
     def get_queryset(self):
         """Filter campaigns based on query parameters"""
-        queryset = AdminNotificationCampaign.objects.select_related(
-            'created_by'
-        ).prefetch_related('recipients', 'analytics')
+        recipient_qs = AdminNotificationRecipient.objects.select_related('user')
+        queryset = (
+            AdminNotificationCampaign.objects.select_related('created_by')
+            .annotate(_recipient_count=Count('recipients'))
+            .prefetch_related(
+                Prefetch('recipients', queryset=recipient_qs),
+                'analytics',
+            )
+        )
         
         # Filter by status
         status_filter = self.request.query_params.get('status')
@@ -93,9 +101,15 @@ class CampaignDetailView(generics.RetrieveUpdateDestroyAPIView):
     permission_classes = [permissions.IsAuthenticated]
     
     def get_queryset(self):
-        return AdminNotificationCampaign.objects.select_related(
-            'created_by'
-        ).prefetch_related('recipients', 'analytics')
+        recipient_qs = AdminNotificationRecipient.objects.select_related('user')
+        return (
+            AdminNotificationCampaign.objects.select_related('created_by')
+            .annotate(_recipient_count=Count('recipients'))
+            .prefetch_related(
+                Prefetch('recipients', queryset=recipient_qs),
+                'analytics',
+            )
+        )
 
 class CreateCampaignView(generics.CreateAPIView):
     """Create a new notification campaign with recipient targeting"""
@@ -203,9 +217,16 @@ class UserListView(generics.ListAPIView):
     permission_classes = [permissions.IsAuthenticated]
     
     def get_queryset(self):
-        """Filter users based on query parameters"""
-        queryset = User.objects.filter(is_active=True).select_related().prefetch_related(
-            'device_tokens', 'billboards', 'wishlist_items'
+        """Filter users based on query parameters (no per-row exists() N+1)."""
+        has_billboard = Exists(Billboard.objects.filter(user_id=OuterRef('pk')))
+        has_wishlist = Exists(Wishlist.objects.filter(user_id=OuterRef('pk')))
+        has_active_token = Exists(
+            DeviceToken.objects.filter(user_id=OuterRef('pk'), is_active=True)
+        )
+        queryset = User.objects.filter(is_active=True).annotate(
+            _has_billboard=has_billboard,
+            _has_wishlist=has_wishlist,
+            _has_active_device=has_active_token,
         )
         
         # Filter by user type

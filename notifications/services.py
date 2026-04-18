@@ -290,10 +290,19 @@ class PushNotificationService:
             return False
     
     def get_user_notifications(self, user, limit=50, offset=0):
-        """Get notifications for a user"""
-        return PushNotification.objects.filter(
-            recipient=user
-        ).order_by('-sent_at')[offset:offset + limit]
+        """Get notifications for a user (indexed recipient + sent_at ordering)."""
+        try:
+            limit = int(limit)
+            offset = int(offset)
+        except (TypeError, ValueError):
+            limit, offset = 50, 0
+        limit = max(1, min(limit, 200))
+        offset = max(0, offset)
+        return (
+            PushNotification.objects.filter(recipient=user)
+            .select_related('content_type')
+            .order_by('-sent_at')[offset : offset + limit]
+        )
     
     def mark_notification_as_opened(self, notification_id):
         """Mark a notification as opened"""
