@@ -1,13 +1,14 @@
 """
 Quick script to send test notification to all users
-Update BASE_URL if your server is on a different host/port
+Set PUBLIC_BASE_URL in the environment, or edit the default below.
 """
+import os
 import requests
 import json
 from datetime import datetime
 
-# Configuration - UPDATE THIS IF YOUR SERVER IS ON DIFFERENT HOST/PORT
-BASE_URL = "http://44.200.108.209:8000"  # Your EC2 server URL
+# Matches core.settings.PUBLIC_BASE_URL; defaults to this deployment's public API.
+BASE_URL = os.environ.get('PUBLIC_BASE_URL', 'http://16.16.160.64:8000').rstrip('/')
 
 # Your admin token
 ADMIN_TOKEN = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJ0b2tlbl90eXBlIjoiYWNjZXNzIiwiZXhwIjoxNzYzMTM0NDkyLCJpYXQiOjE3NjMwNDgwOTIsImp0aSI6IjI5Nzg0OWEwODJhNTQ5ZmQ5MzIzMjU3MjZjNzljMGE3IiwidXNlcl9pZCI6IjE3In0.pvZpxtefii5xOW9DjxOYCCzz7-MUXWiGKKVF0-mVgkQ"

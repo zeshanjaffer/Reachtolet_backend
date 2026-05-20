@@ -6,7 +6,13 @@ BASE_DIR = Path(__file__).resolve().parent.parent
 
 SECRET_KEY = 'django-insecure-=9xl#&msc(zpz=i91=&@(oy6)0cwntgict4@e3jzts#drdghbt'
 DEBUG = True
+# Accept any Host header (typical behind a reverse proxy or for EC2 public IP).
+# For stricter production, set DJANGO_ALLOWED_HOSTS to a comma-separated list instead.
 ALLOWED_HOSTS = ['*']
+
+# Base URL of this API for clients and helper scripts (no trailing slash).
+# Example production: http://16.16.160.64:8000
+PUBLIC_BASE_URL = os.environ.get('PUBLIC_BASE_URL', 'http://127.0.0.1:8000').rstrip('/')
 
 INSTALLED_APPS = [
     'django.contrib.admin',
