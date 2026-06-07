@@ -288,8 +288,16 @@ class BillboardListCreateView(generics.ListCreateAPIView):
     
     def perform_create(self, serializer):
         user = self.request.user
-        # Set default approval status to pending for new billboards
-        billboard = serializer.save(user=user, approval_status='pending')
+        # Admin approval workflow: pending → admin approves → visible on public map.
+        # Development: BYPASS_BILLBOARD_APPROVAL skips pending (see core.settings).
+        if getattr(settings, 'BYPASS_BILLBOARD_APPROVAL', False):
+            serializer.save(
+                user=user,
+                approval_status='approved',
+                approved_at=timezone.now(),
+            )
+        else:
+            serializer.save(user=user, approval_status='pending')
         # WebSocket notifications removed
 
     def notify_new_billboard(self, billboard):
