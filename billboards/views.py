@@ -43,7 +43,7 @@ logger = logging.getLogger(__name__)
 
 class BillboardListCreateView(generics.ListCreateAPIView):
     def get_queryset(self):
-        # Public list: only fields needed for map markers; full data via detail endpoint
+        # List: only fields needed for map markers; full data via detail endpoint
         return Billboard.objects.filter(
             is_active=True,
             approval_status='approved',
@@ -59,7 +59,7 @@ class BillboardListCreateView(generics.ListCreateAPIView):
             return BillboardPublicSummarySerializer
         return BillboardSerializer
 
-    permission_classes = [permissions.AllowAny]
+    permission_classes = [IsAuthenticated]
     pagination_class = CustomPagination
     filter_backends = [DjangoFilterBackend, SearchFilter, OrderingFilter]
     filterset_class = BillboardFilter  # Use simple filter
@@ -297,10 +297,7 @@ class BillboardListCreateView(generics.ListCreateAPIView):
 class BillboardAvailabilityView(APIView):
     """Get or set booked dates for a billboard calendar."""
 
-    def get_permissions(self):
-        if self.request.method == 'GET':
-            return [permissions.AllowAny()]
-        return [IsAuthenticated()]
+    permission_classes = [IsAuthenticated]
 
     def get(self, request, billboard_id):
         try:
@@ -382,13 +379,7 @@ class BillboardDetailView(generics.RetrieveUpdateDestroyAPIView):
             context['wishlist_billboard_ids'] = frozenset()
         return context
     
-    def get_permissions(self):
-        """
-        Allow anyone to view, but only media owners can update/delete
-        """
-        if self.request.method == 'GET':
-            return [permissions.AllowAny()]
-        return [IsAuthenticated()]
+    permission_classes = [IsAuthenticated]
 
     def update(self, request, *args, **kwargs):
         instance = self.get_object()
@@ -564,6 +555,7 @@ class WishlistToggleView(APIView):
 
 # Updated Lead Tracking View with Duplicate Prevention
 @api_view(['POST'])
+@permission_classes([IsAuthenticated])
 def track_billboard_lead(request, billboard_id):
     """
     Track a lead for a specific billboard (phone or WhatsApp click)
@@ -795,6 +787,7 @@ def toggle_billboard_active(request, billboard_id):
 
 # UPDATED: View tracking endpoint with duplicate prevention
 @api_view(['POST'])
+@permission_classes([IsAuthenticated])
 def track_billboard_view(request, billboard_id):
     """
     Track a view for a specific billboard
