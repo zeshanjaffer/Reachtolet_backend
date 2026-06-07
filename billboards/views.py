@@ -4,8 +4,10 @@ from .serializers import (
     BillboardSerializer,
     BillboardListSerializer,
     BillboardPublicSummarySerializer,
+    BillboardAvailabilityUpdateSerializer,
     WishlistSerializer,
 )
+from .availability_utils import build_availability_payload, parse_date_param
 from .filters import BillboardFilter
 from .clustering import cluster_billboards, should_use_clustering
 from django.core.cache import cache
@@ -21,6 +23,7 @@ from django.utils.decorators import method_decorator
 from django_filters.rest_framework import DjangoFilterBackend
 from rest_framework.filters import SearchFilter, OrderingFilter
 from core.pagination import CustomPagination
+from core.responses import action_response
 from django.utils.decorators import method_decorator
 from django.views.decorators.cache import cache_page
 from django.views.decorators.vary import vary_on_cookie
@@ -40,26 +43,15 @@ logger = logging.getLogger(__name__)
 
 class BillboardListCreateView(generics.ListCreateAPIView):
     def get_queryset(self):
-        # Public list: narrow SELECT — fields used by BillboardPublicSummarySerializer + filters/order
+        # Public list: only fields needed for map markers; full data via detail endpoint
         return Billboard.objects.filter(
             is_active=True,
             approval_status='approved',
         ).only(
             'id',
-            'company_name',
-            'description',
-            'price_range',
-            'is_active',
-            'unavailable_dates',
-            'city',
-            'address',
-            'images',
             'latitude',
             'longitude',
-            'type',
-            'ooh_media_type',
             'created_at',
-            'views',
         ).order_by('-created_at')
 
     def get_serializer_class(self):
@@ -67,20 +59,6 @@ class BillboardListCreateView(generics.ListCreateAPIView):
             return BillboardPublicSummarySerializer
         return BillboardSerializer
 
-    def get_serializer_context(self):
-        context = super().get_serializer_context()
-        context['request'] = self.request
-        if self.request.method == 'GET':
-            if self.request.user.is_authenticated:
-                context['wishlist_billboard_ids'] = frozenset(
-                    Wishlist.objects.filter(user=self.request.user).values_list(
-                        'billboard_id', flat=True
-                    )
-                )
-            else:
-                context['wishlist_billboard_ids'] = frozenset()
-        return context
-    
     permission_classes = [permissions.AllowAny]
     pagination_class = CustomPagination
     filter_backends = [DjangoFilterBackend, SearchFilter, OrderingFilter]
@@ -283,8 +261,15 @@ class BillboardListCreateView(generics.ListCreateAPIView):
                 existing_images = image_urls
             request.data['images'] = existing_images
         
-        # Proceed with normal creation
-        return super().create(request, *args, **kwargs)
+        payload = request.data.copy() if hasattr(request.data, 'copy') else dict(request.data)
+        payload.pop('unavailable_dates', None)
+        payload.pop('booked_dates', None)
+        payload.pop('availability', None)
+
+        serializer = self.get_serializer(data=payload)
+        serializer.is_valid(raise_exception=True)
+        self.perform_create(serializer)
+        return action_response('Billboard created successfully', status.HTTP_201_CREATED)
     
     def perform_create(self, serializer):
         user = self.request.user
@@ -308,6 +293,75 @@ class BillboardListCreateView(generics.ListCreateAPIView):
     @method_decorator(vary_on_cookie)
     def get(self, request, *args, **kwargs):
         return super().get(request, *args, **kwargs)
+
+class BillboardAvailabilityView(APIView):
+    """Get or set booked dates for a billboard calendar."""
+
+    def get_permissions(self):
+        if self.request.method == 'GET':
+            return [permissions.AllowAny()]
+        return [IsAuthenticated()]
+
+    def get(self, request, billboard_id):
+        try:
+            billboard = Billboard.objects.get(pk=billboard_id)
+        except Billboard.DoesNotExist:
+            return action_response('Billboard not found', status.HTTP_404_NOT_FOUND)
+
+        from_date = None
+        to_date = None
+        try:
+            from_date = parse_date_param(request.query_params.get('from'))
+            to_date = parse_date_param(request.query_params.get('to'))
+        except ValueError as exc:
+            return action_response(str(exc), status.HTTP_400_BAD_REQUEST)
+
+        if from_date and to_date and from_date > to_date:
+            return action_response(
+                'Invalid date range: from must be before or equal to to.',
+                status.HTTP_400_BAD_REQUEST,
+            )
+
+        return Response(
+            build_availability_payload(billboard, from_date=from_date, to_date=to_date),
+            status=status.HTTP_200_OK,
+        )
+
+    def put(self, request, billboard_id):
+        if request.user.user_type != 'media_owner':
+            return action_response(
+                'Only media owners can set billboard availability.',
+                status.HTTP_403_FORBIDDEN,
+            )
+
+        try:
+            billboard = Billboard.objects.get(pk=billboard_id)
+        except Billboard.DoesNotExist:
+            return action_response('Billboard not found', status.HTTP_404_NOT_FOUND)
+
+        if billboard.user != request.user:
+            return action_response(
+                'You can only set availability for your own billboards.',
+                status.HTTP_403_FORBIDDEN,
+            )
+
+        serializer = BillboardAvailabilityUpdateSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        booked_dates = serializer.validated_data['booked_dates']
+
+        billboard.unavailable_dates = booked_dates
+        billboard.save(update_fields=['unavailable_dates'])
+
+        payload = build_availability_payload(billboard)
+        return Response(
+            {
+                'status_code': status.HTTP_200_OK,
+                'message': 'Availability updated successfully',
+                **payload,
+            },
+            status=status.HTTP_200_OK,
+        )
+
 
 class BillboardDetailView(generics.RetrieveUpdateDestroyAPIView):
     def get_queryset(self):
@@ -350,6 +404,15 @@ class BillboardDetailView(generics.RetrieveUpdateDestroyAPIView):
             return Response({
                 'detail': 'You can only update your own billboards.'
             }, status=status.HTTP_403_FORBIDDEN)
+
+        if hasattr(request.data, '_mutable'):
+            request.data._mutable = True
+        if 'unavailable_dates' in request.data:
+            request.data.pop('unavailable_dates')
+        if 'booked_dates' in request.data:
+            request.data.pop('booked_dates')
+        if 'availability' in request.data:
+            request.data.pop('availability')
         
         response = super().update(request, *args, **kwargs)
         # WebSocket notifications removed
@@ -444,11 +507,15 @@ class WishlistView(generics.ListCreateAPIView):
         
         # Check if already in wishlist
         if Wishlist.objects.filter(user=request.user, billboard_id=billboard_id).exists():
-            return Response({
-                'message': 'Billboard is already in your wishlist'
-            }, status=status.HTTP_400_BAD_REQUEST)
-        
-        return super().create(request, *args, **kwargs)
+            return action_response(
+                'Billboard is already in your wishlist',
+                status.HTTP_400_BAD_REQUEST,
+            )
+
+        serializer = self.get_serializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        serializer.save()
+        return action_response('Added to wishlist successfully', status.HTTP_201_CREATED)
 
 
 class WishlistRemoveView(APIView):
@@ -484,25 +551,15 @@ class WishlistToggleView(APIView):
             ).first()
             
             if wishlist_item:
-                # Remove from wishlist
                 wishlist_item.delete()
-                return Response({
-                    'message': 'Removed from wishlist',
-                    'in_wishlist': False
-                }, status=status.HTTP_200_OK)
-            else:
-                # Add to wishlist
-                billboard = Billboard.objects.get(id=billboard_id)
-                Wishlist.objects.create(user=request.user, billboard=billboard)
-                return Response({
-                    'message': 'Added to wishlist',
-                    'in_wishlist': True
-                }, status=status.HTTP_201_CREATED)
-                
+                return action_response('Removed from wishlist', status.HTTP_200_OK)
+
+            billboard = Billboard.objects.get(id=billboard_id)
+            Wishlist.objects.create(user=request.user, billboard=billboard)
+            return action_response('Added to wishlist', status.HTTP_201_CREATED)
+
         except Billboard.DoesNotExist:
-            return Response({
-                'message': 'Billboard not found'
-            }, status=status.HTTP_404_NOT_FOUND)
+            return action_response('Billboard not found', status.HTTP_404_NOT_FOUND)
 
 
 # Updated Lead Tracking View with Duplicate Prevention
@@ -518,12 +575,10 @@ def track_billboard_lead(request, billboard_id):
         # IMPORTANT: Check if the current user is the billboard owner
         # This prevents owners from inflating their own lead counts
         if billboard.user and request.user.is_authenticated and billboard.user.id == request.user.id:
-            return Response({
-                'message': 'Lead not tracked - owner viewing own billboard',
-                'billboard_id': billboard_id,
-                'current_leads': billboard.leads,
-                'owner_lead': True
-            }, status=status.HTTP_200_OK)
+            return action_response(
+                'Lead not tracked - owner viewing own billboard',
+                status.HTTP_200_OK,
+            )
         
         # Get client IP address
         x_forwarded_for = request.META.get('HTTP_X_FORWARDED_FOR')
@@ -552,13 +607,10 @@ def track_billboard_lead(request, billboard_id):
                 ).exists()
         
         if lead_exists:
-            # Lead already tracked, don't increment counter
-            return Response({
-                'message': 'Lead already tracked for this billboard',
-                'billboard_id': billboard_id,
-                'current_leads': billboard.leads,
-                'duplicate': True
-            }, status=status.HTTP_200_OK)
+            return action_response(
+                'Lead already tracked for this billboard',
+                status.HTTP_200_OK,
+            )
         
         # Create new lead record
         Lead.objects.create(
@@ -574,22 +626,13 @@ def track_billboard_lead(request, billboard_id):
         user_info = request.user.email if request.user.is_authenticated else user_ip
         logger.info(f"New lead tracked for billboard {billboard_id} from {user_info}")
         
-        return Response({
-            'message': 'Lead tracked successfully',
-            'billboard_id': billboard_id,
-            'current_leads': billboard.leads,
-            'duplicate': False
-        }, status=status.HTTP_200_OK)
-        
+        return action_response('Lead tracked successfully', status.HTTP_200_OK)
+
     except Billboard.DoesNotExist:
-        return Response({
-            'error': 'Billboard not found'
-        }, status=status.HTTP_404_NOT_FOUND)
+        return action_response('Billboard not found', status.HTTP_404_NOT_FOUND)
     except Exception as e:
         logger.error(f"Error tracking lead for billboard {billboard_id}: {str(e)}")
-        return Response({
-            'error': 'Failed to track lead'
-        }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+        return action_response('Failed to track lead', status.HTTP_500_INTERNAL_SERVER_ERROR)
 
 
 @method_decorator(csrf_exempt, name='dispatch')
@@ -763,12 +806,10 @@ def track_billboard_view(request, billboard_id):
         # IMPORTANT: Check if the current user is the billboard owner
         # This prevents owners from inflating their own view counts
         if billboard.user and request.user.is_authenticated and billboard.user.id == request.user.id:
-            return Response({
-                'message': 'View not tracked - owner viewing own billboard',
-                'billboard_id': billboard_id,
-                'current_views': billboard.views,
-                'owner_view': True
-            }, status=status.HTTP_200_OK)
+            return action_response(
+                'View not tracked - owner viewing own billboard',
+                status.HTTP_200_OK,
+            )
         
         # Get client IP address
         x_forwarded_for = request.META.get('HTTP_X_FORWARDED_FOR')
@@ -797,14 +838,10 @@ def track_billboard_view(request, billboard_id):
                 ).exists()
         
         if view_exists:
-            # View already tracked, don't increment counter
-            return Response({
-                'message': 'View already tracked for this billboard',
-                'billboard_id': billboard_id,
-                'current_views': billboard.views,
-                'owner_view': False,
-                'duplicate': True
-            }, status=status.HTTP_200_OK)
+            return action_response(
+                'View already tracked for this billboard',
+                status.HTTP_200_OK,
+            )
         
         # Create new view record
         View.objects.create(
@@ -820,23 +857,13 @@ def track_billboard_view(request, billboard_id):
         user_info = request.user.email if request.user.is_authenticated else user_ip
         logger.info(f"New view tracked for billboard {billboard_id} from {user_info}")
         
-        return Response({
-            'message': 'View tracked successfully',
-            'billboard_id': billboard_id,
-            'current_views': billboard.views,
-            'owner_view': False,
-            'duplicate': False
-        }, status=status.HTTP_200_OK)
-        
+        return action_response('View tracked successfully', status.HTTP_200_OK)
+
     except Billboard.DoesNotExist:
-        return Response({
-            'error': 'Billboard not found'
-        }, status=status.HTTP_404_NOT_FOUND)
+        return action_response('Billboard not found', status.HTTP_404_NOT_FOUND)
     except Exception as e:
         logger.error(f"Error tracking view for billboard {billboard_id}: {str(e)}")
-        return Response({
-            'error': 'Failed to track view'
-        }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+        return action_response('Failed to track view', status.HTTP_500_INTERNAL_SERVER_ERROR)
 
 class HealthCheckView(APIView):
     permission_classes = [permissions.AllowAny]

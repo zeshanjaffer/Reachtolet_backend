@@ -1,4 +1,5 @@
 from rest_framework import serializers
+from .availability_utils import build_availability_payload, normalize_booked_dates
 from .models import Billboard, Wishlist
 
 
@@ -12,49 +13,17 @@ def _wishlist_ids_for_user(request):
 
 class BillboardPublicSummarySerializer(serializers.ModelSerializer):
     """
-    Minimal payload for public list/map endpoints — fewer columns and no N+1 wishlist queries.
+    Minimal payload for public list/map endpoints.
+    Full billboard data is returned only by GET /api/billboards/{id}/.
     """
-    name = serializers.CharField(source='company_name', read_only=True)
-    price = serializers.CharField(source='price_range', read_only=True)
-    image = serializers.SerializerMethodField()
-    availability = serializers.SerializerMethodField()
-    is_in_wishlist = serializers.SerializerMethodField()
+    count = serializers.SerializerMethodField()
 
     class Meta:
         model = Billboard
-        fields = [
-            'id',
-            'name',
-            'description',
-            'price',
-            'availability',
-            'city',
-            'address',
-            'image',
-            'latitude',
-            'longitude',
-            'type',
-            'ooh_media_type',
-            'is_in_wishlist',
-        ]
+        fields = ['id', 'latitude', 'longitude', 'count']
 
-    def get_image(self, obj):
-        images = obj.images or []
-        if isinstance(images, list) and len(images) > 0:
-            return images[0]
-        return None
-
-    def get_availability(self, obj):
-        return {
-            'is_active': obj.is_active,
-            'unavailable_dates': obj.unavailable_dates or [],
-        }
-
-    def get_is_in_wishlist(self, obj):
-        ids = self.context.get('wishlist_billboard_ids')
-        if ids is not None:
-            return obj.pk in ids
-        return obj.pk in _wishlist_ids_for_user(self.context.get('request'))
+    def get_count(self, obj):
+        return 1
 
 
 class BillboardSerializer(serializers.ModelSerializer):
@@ -68,6 +37,7 @@ class BillboardSerializer(serializers.ModelSerializer):
     
     # Wishlist status - check if current user has this billboard in wishlist
     is_in_wishlist = serializers.SerializerMethodField()
+    availability = serializers.SerializerMethodField()
     
     class Meta:
         model = Billboard
@@ -76,7 +46,7 @@ class BillboardSerializer(serializers.ModelSerializer):
             'traffic_direction', 'road_position', 'road_name', 'exposure_time',
             'price_range', 'display_height', 'display_width', 'advertiser_phone',
             'advertiser_whatsapp', 'company_name', 'company_website',
-            'ooh_media_type', 'ooh_media_id', 'type', 'images', 'unavailable_dates',
+            'ooh_media_type', 'ooh_media_id', 'type', 'images', 'availability',
             'latitude', 'longitude', 'views', 'leads', 'is_active', 'address',
             'generator_backup', 'created_at', 'user_name',
             # Approval workflow fields
@@ -88,7 +58,14 @@ class BillboardSerializer(serializers.ModelSerializer):
         read_only_fields = ('user', 'views', 'leads', 'created_at', 'is_active', 'user_name', 
                            'approved_at', 'rejected_at', 'approved_by', 'rejected_by', 
                            'approval_status_display', 'approved_by_username', 'rejected_by_username',
-                           'is_in_wishlist')
+                           'is_in_wishlist', 'availability')
+
+    def get_availability(self, obj):
+        payload = build_availability_payload(obj)
+        return {
+            'booked_dates': payload['booked_dates'],
+            'total_booked': payload['total_booked'],
+        }
 
     def get_is_in_wishlist(self, obj):
         """Check if the current user has this billboard in their wishlist"""
@@ -117,6 +94,7 @@ class BillboardListSerializer(serializers.ModelSerializer):
     
     # Wishlist status - check if current user has this billboard in wishlist
     is_in_wishlist = serializers.SerializerMethodField()
+    availability = serializers.SerializerMethodField()
     
     class Meta:
         model = Billboard
@@ -125,7 +103,7 @@ class BillboardListSerializer(serializers.ModelSerializer):
             'traffic_direction', 'road_position', 'road_name', 'exposure_time',
             'price_range', 'display_height', 'display_width', 'advertiser_phone',
             'advertiser_whatsapp', 'company_name', 'company_website',
-            'ooh_media_type', 'ooh_media_id', 'type', 'images', 'unavailable_dates',
+            'ooh_media_type', 'ooh_media_id', 'type', 'images', 'availability',
             'latitude', 'longitude', 'views', 'leads', 'is_active', 'address',
             'generator_backup', 'created_at', 'user_name',
             # Approval workflow fields
@@ -137,8 +115,15 @@ class BillboardListSerializer(serializers.ModelSerializer):
         read_only_fields = ('user', 'views', 'leads', 'created_at', 'is_active', 'user_name',
                            'approved_at', 'rejected_at', 'approved_by', 'rejected_by',
                            'approval_status_display', 'approved_by_username', 'rejected_by_username',
-                           'is_in_wishlist')
+                           'is_in_wishlist', 'availability')
     
+    def get_availability(self, obj):
+        payload = build_availability_payload(obj)
+        return {
+            'booked_dates': payload['booked_dates'],
+            'total_booked': payload['total_booked'],
+        }
+
     def get_is_in_wishlist(self, obj):
         """Check if the current user has this billboard in their wishlist"""
         ids = self.context.get('wishlist_billboard_ids')
@@ -148,6 +133,20 @@ class BillboardListSerializer(serializers.ModelSerializer):
         if request and request.user.is_authenticated:
             return Wishlist.objects.filter(user=request.user, billboard=obj).exists()
         return False
+
+
+class BillboardAvailabilityUpdateSerializer(serializers.Serializer):
+    booked_dates = serializers.ListField(
+        child=serializers.CharField(),
+        allow_empty=True,
+        required=True,
+    )
+
+    def validate_booked_dates(self, value):
+        try:
+            return normalize_booked_dates(value)
+        except ValueError as exc:
+            raise serializers.ValidationError(str(exc)) from exc
 
 
 class WishlistSerializer(serializers.ModelSerializer):

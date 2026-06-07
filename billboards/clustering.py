@@ -72,7 +72,7 @@ def create_cluster(billboards: List[Dict], grid_lat: float, grid_lng: float) -> 
             'id': billboards[0]['id'],
             'latitude': billboards[0]['latitude'],
             'longitude': billboards[0]['longitude'],
-            'data': billboards[0]
+            'count': 1,
         }
     
     # Calculate cluster center (average of all billboards in cluster)
@@ -89,17 +89,10 @@ def create_cluster(billboards: List[Dict], grid_lat: float, grid_lng: float) -> 
     
     return {
         'type': 'cluster',
+        'id': None,
         'latitude': center_lat,
         'longitude': center_lng,
         'count': count,
-        'bounds': {
-            'ne_lat': max(lats),
-            'ne_lng': max(lngs),
-            'sw_lat': min(lats),
-            'sw_lng': min(lngs)
-        },
-        'grid_lat': grid_lat,
-        'grid_lng': grid_lng
     }
 
 

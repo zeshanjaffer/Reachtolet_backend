@@ -1,6 +1,7 @@
 from rest_framework import generics, permissions, status
 from rest_framework.response import Response
-from rest_framework_simplejwt.views import TokenObtainPairView
+from rest_framework_simplejwt.views import TokenObtainPairView, TokenRefreshView
+from core.responses import action_response, auth_response
 from .models import User
 from .serializers import UserSerializer, RegisterSerializer, UserProfileUpdateSerializer, CustomTokenObtainPairSerializer
 from rest_framework.permissions import AllowAny
@@ -26,6 +27,31 @@ GOOGLE_CLIENT_ID = "971707519453-srarmkadprdmpgv385312cgfckok9eku.apps.googleuse
 class CustomTokenObtainPairView(TokenObtainPairView):
     """Custom login view that accepts email instead of username"""
     serializer_class = CustomTokenObtainPairSerializer
+
+    def post(self, request, *args, **kwargs):
+        serializer = self.get_serializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        data = serializer.validated_data
+        return auth_response(
+            'Logged in successfully',
+            status.HTTP_200_OK,
+            data['access'],
+            data['refresh'],
+            data.get('user'),
+        )
+
+
+class CustomTokenRefreshView(TokenRefreshView):
+    def post(self, request, *args, **kwargs):
+        serializer = self.get_serializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        data = serializer.validated_data
+        return auth_response(
+            'Token refreshed successfully',
+            status.HTTP_200_OK,
+            data['access'],
+            data.get('refresh', request.data.get('refresh')),
+        )
 
 def _user_from_bearer_access(request):
     """Return user if Authorization Bearer access token is valid, else None."""
@@ -58,22 +84,14 @@ class LogoutView(APIView):
                 token = RefreshToken(refresh_str)
                 token.blacklist()
             except TokenError as e:
-                return Response(
-                    {"detail": str(e), "code": "token_not_valid"},
-                    status=status.HTTP_401_UNAUTHORIZED,
-                )
+                return action_response(str(e), status.HTTP_401_UNAUTHORIZED)
 
         if user is not None or refresh_str:
-            return Response(
-                {"message": "Logged out successfully."},
-                status=status.HTTP_200_OK,
-            )
+            return action_response('Logged out successfully', status.HTTP_200_OK)
 
-        return Response(
-            {
-                "detail": "Provide Authorization: Bearer <access> and/or a valid refresh token in the JSON body.",
-            },
-            status=status.HTTP_401_UNAUTHORIZED,
+        return action_response(
+            'Provide Authorization: Bearer <access> and/or a valid refresh token in the JSON body.',
+            status.HTTP_401_UNAUTHORIZED,
         )
 
 @api_view(['GET'])
@@ -130,22 +148,21 @@ class RegisterView(generics.CreateAPIView):
         serializer = self.get_serializer(data=request.data)
         serializer.is_valid(raise_exception=True)
         user = serializer.save()
-        
-        # Automatically log in the user and return JWT tokens
         refresh = RefreshToken.for_user(user)
-        return Response({
-            'user': {
+        return auth_response(
+            'User registered successfully',
+            status.HTTP_201_CREATED,
+            str(refresh.access_token),
+            str(refresh),
+            {
                 'id': user.id,
                 'email': user.email,
                 'full_name': user.full_name,
                 'phone': user.phone,
                 'country_code': user.country_code,
-                'user_type': user.user_type
+                'user_type': user.user_type,
             },
-            'refresh': str(refresh),
-            'access': str(refresh.access_token),
-            'message': 'User registered successfully'
-        }, status=status.HTTP_201_CREATED)
+        )
 
 class UserProfileView(generics.RetrieveUpdateAPIView):
     permission_classes = [permissions.IsAuthenticated]
@@ -164,19 +181,19 @@ class GoogleLoginView(APIView):
     def post(self, request):
         id_token = request.data.get('id_token')
         if not id_token:
-            return Response({'detail': 'No ID token provided.'}, status=status.HTTP_400_BAD_REQUEST)
+            return action_response('No ID token provided.', status.HTTP_400_BAD_REQUEST)
 
         # Verify the token with Google
         google_url = f"https://oauth2.googleapis.com/tokeninfo?id_token={id_token}"
         resp = requests.get(google_url)
         if resp.status_code != 200:
-            return Response({'detail': 'Invalid Google token.'}, status=status.HTTP_400_BAD_REQUEST)
+            return action_response('Invalid Google token.', status.HTTP_400_BAD_REQUEST)
         data = resp.json()
         if data.get('aud') != GOOGLE_CLIENT_ID:
-            return Response({'detail': 'Invalid audience.'}, status=status.HTTP_400_BAD_REQUEST)
+            return action_response('Invalid audience.', status.HTTP_400_BAD_REQUEST)
         email = data.get('email')
         if not email:
-            return Response({'detail': 'No email in Google token.'}, status=status.HTTP_400_BAD_REQUEST)
+            return action_response('No email in Google token.', status.HTTP_400_BAD_REQUEST)
 
         # Get user_type from request (required for new users)
         user_type = request.data.get('user_type', 'advertiser')
@@ -202,17 +219,18 @@ class GoogleLoginView(APIView):
             user.set_unusable_password()
             user.save()
 
-        # Issue JWT
         refresh = RefreshToken.for_user(user)
-        return Response({
-            'user': {
+        return auth_response(
+            'Google login successful',
+            status.HTTP_200_OK,
+            str(refresh.access_token),
+            str(refresh),
+            {
                 'id': user.id,
                 'email': user.email,
-                'user_type': user.user_type
+                'user_type': user.user_type,
             },
-            'refresh': str(refresh),
-            'access': str(refresh.access_token),
-        })
+        )
 
 @api_view(['POST'])
 @permission_classes([permissions.IsAuthenticated])
@@ -223,17 +241,20 @@ def upload_profile_image(request):
     try:
         file_obj = request.FILES.get('image')
         if not file_obj:
-            return Response({'detail': 'No image provided.'}, status=status.HTTP_400_BAD_REQUEST)
+            return action_response('No image provided.', status.HTTP_400_BAD_REQUEST)
         
         # Validate file type
         allowed_types = ['image/jpeg', 'image/png', 'image/gif', 'image/webp', 'image/jpg']
         if file_obj.content_type not in allowed_types:
-            return Response({'detail': f'Invalid file type: {file_obj.content_type}'}, status=status.HTTP_400_BAD_REQUEST)
+            return action_response(
+                f'Invalid file type: {file_obj.content_type}',
+                status.HTTP_400_BAD_REQUEST,
+            )
         
         # Validate file size (5MB limit for profile images)
         max_size = 5 * 1024 * 1024
         if file_obj.size > max_size:
-            return Response({'detail': 'File too large. Maximum size is 5MB.'}, status=status.HTTP_400_BAD_REQUEST)
+            return action_response('File too large. Maximum size is 5MB.', status.HTTP_400_BAD_REQUEST)
         
         # Generate unique filename
         file_extension = os.path.splitext(file_obj.name)[1] if file_obj.name else '.jpg'
@@ -259,14 +280,11 @@ def upload_profile_image(request):
         request.user.profile_image = path
         request.user.save()
         
-        # Generate URL
-        image_url = request.build_absolute_uri(f'{settings.MEDIA_URL}{path}')
-        
-        return Response({'url': image_url}, status=status.HTTP_201_CREATED)
+        return action_response('Profile image uploaded successfully', status.HTTP_201_CREATED)
         
     except Exception as e:
         logger.error(f"Error uploading profile image: {str(e)}")
-        return Response({'detail': f'Upload failed: {str(e)}'}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+        return action_response(f'Upload failed: {str(e)}', status.HTTP_500_INTERNAL_SERVER_ERROR)
 
 class HealthCheckView(APIView):
     permission_classes = [permissions.AllowAny]

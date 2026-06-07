@@ -9,6 +9,7 @@ from .views import (
     track_billboard_lead,
     track_billboard_view,  # NEW: Import the view tracking function
     toggle_billboard_active,  # NEW: Import the toggle active function
+    BillboardAvailabilityView,
     # Approval workflow endpoints
     update_billboard_approval_status,
     get_pending_billboards
@@ -22,6 +23,7 @@ urlpatterns = [
     path('<int:billboard_id>/track-view/', track_billboard_view, name='track-billboard-view'),
     path('<int:billboard_id>/increment-view/', track_billboard_view, name='increment-billboard-view'),
     path('<int:billboard_id>/toggle-active/', toggle_billboard_active, name='toggle-billboard-active'),
+    path('<int:billboard_id>/availability/', BillboardAvailabilityView.as_view(), name='billboard-availability'),
     
     # Approval workflow endpoints (Admin only)
     path('pending/', get_pending_billboards, name='get-pending-billboards'),

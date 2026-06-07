@@ -15,6 +15,7 @@ from .serializers import (
 )
 from .services import push_service
 from core.pagination import CustomPagination
+from core.responses import action_response
 import logging
 from django.utils import timezone
 
@@ -41,14 +42,8 @@ class DeviceTokenView(generics.CreateAPIView):
         )
         
         if device_token:
-            return Response({
-                'message': 'Device token registered successfully',
-                'device_token': DeviceTokenSerializer(device_token).data
-            }, status=status.HTTP_201_CREATED)
-        else:
-            return Response({
-                'error': 'Failed to register device token'
-            }, status=status.HTTP_400_BAD_REQUEST)
+            return action_response('Device token registered successfully', status.HTTP_201_CREATED)
+        return action_response('Failed to register device token', status.HTTP_400_BAD_REQUEST)
 
 class UnregisterDeviceTokenView(APIView):
     """Unregister device token"""
@@ -57,20 +52,13 @@ class UnregisterDeviceTokenView(APIView):
     def post(self, request):
         fcm_token = request.data.get('fcm_token')
         if not fcm_token:
-            return Response({
-                'error': 'FCM token is required'
-            }, status=status.HTTP_400_BAD_REQUEST)
-        
+            return action_response('FCM token is required', status.HTTP_400_BAD_REQUEST)
+
         success = push_service.unregister_device_token(fcm_token)
-        
+
         if success:
-            return Response({
-                'message': 'Device token unregistered successfully'
-            }, status=status.HTTP_200_OK)
-        else:
-            return Response({
-                'error': 'Failed to unregister device token'
-            }, status=status.HTTP_400_BAD_REQUEST)
+            return action_response('Device token unregistered successfully', status.HTTP_200_OK)
+        return action_response('Failed to unregister device token', status.HTTP_400_BAD_REQUEST)
 
 class NotificationPreferenceView(generics.RetrieveUpdateAPIView):
     """Get and update notification preferences"""
@@ -100,13 +88,8 @@ def mark_notification_opened(request, notification_id):
     success = push_service.mark_notification_as_opened(notification_id)
     
     if success:
-        return Response({
-            'message': 'Notification marked as opened'
-        }, status=status.HTTP_200_OK)
-    else:
-        return Response({
-            'error': 'Failed to mark notification as opened'
-        }, status=status.HTTP_400_BAD_REQUEST)
+        return action_response('Notification marked as opened', status.HTTP_200_OK)
+    return action_response('Failed to mark notification as opened', status.HTTP_400_BAD_REQUEST)
 
 @api_view(['POST'])
 @permission_classes([permissions.IsAuthenticated])
@@ -118,14 +101,10 @@ def mark_all_notifications_opened(request):
             opened=False
         ).update(opened=True, opened_at=timezone.now())
         
-        return Response({
-            'message': 'All notifications marked as opened'
-        }, status=status.HTTP_200_OK)
+        return action_response('All notifications marked as opened', status.HTTP_200_OK)
     except Exception as e:
         logger.error(f"Error marking all notifications as opened: {str(e)}")
-        return Response({
-            'error': 'Failed to mark notifications as opened'
-        }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+        return action_response('Failed to mark notifications as opened', status.HTTP_500_INTERNAL_SERVER_ERROR)
 
 class SendNotificationView(generics.CreateAPIView):
     """Send custom notification (admin only)"""
@@ -237,17 +216,12 @@ def test_notification(request):
         )
         
         if notification:
-            return Response({
-                'message': 'Test notification sent successfully',
-                'notification_count': len(notification)
-            }, status=status.HTTP_200_OK)
-        else:
-            return Response({
-                'error': 'No active device tokens found. Please register your device first.'
-            }, status=status.HTTP_400_BAD_REQUEST)
-            
+            return action_response('Test notification sent successfully', status.HTTP_200_OK)
+        return action_response(
+            'No active device tokens found. Please register your device first.',
+            status.HTTP_400_BAD_REQUEST,
+        )
+
     except Exception as e:
         logger.error(f"Error sending test notification: {str(e)}")
-        return Response({
-            'error': 'Failed to send test notification'
-        }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+        return action_response('Failed to send test notification', status.HTTP_500_INTERNAL_SERVER_ERROR)
