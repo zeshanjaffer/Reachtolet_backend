@@ -89,103 +89,85 @@ class BillboardListCreateView(generics.ListCreateAPIView):
 
     def list(self, request, *args, **kwargs):
         """
-        Override list to handle non-paginated responses for map views and clustering.
-        Includes smart caching with version-based invalidation for optimal performance.
+        Map-aware list endpoint with production-grade Supercluster clustering.
+
+        Query params:
+          cluster=true            — enable clustering (Supercluster algorithm)
+          zoom=<float>            — current map zoom level (0–20, default 10)
+          ne_lat, ne_lng,
+          sw_lat, sw_lng          — visible map bounds; disables pagination and
+                                    restricts clustering to the viewport
+
+        Clustering response shape:
+          { count, clustered_count, clusters: [...], clustering_enabled, zoom_level }
+          Each cluster item: { type, cluster_id|id, latitude, longitude, count,
+                               expansion_zoom? }
+
+        Non-clustering (paginated) response:
+          { links, count, total_pages, current_page, results: [{id, lat, lng, count}] }
         """
         queryset = self.filter_queryset(self.get_queryset())
-        
-        # Check if clustering is requested
+
         use_clustering = request.query_params.get('cluster', 'false').lower() == 'true'
         try:
             zoom_level = float(request.query_params.get('zoom', 10.0))
         except (ValueError, TypeError):
-            zoom_level = 10.0  # Default zoom level
-        
-        # Check if pagination should be disabled (map bounds provided)
+            zoom_level = 10.0
+
+        ne_lat = request.query_params.get('ne_lat')
+        ne_lng = request.query_params.get('ne_lng')
+        sw_lat = request.query_params.get('sw_lat')
+        sw_lng = request.query_params.get('sw_lng')
+        has_bounds = bool(ne_lat and ne_lng and sw_lat and sw_lng)
+
         page = self.paginate_queryset(queryset)
-        
+
+        # ── MAP VIEW (bounds provided, no pagination) ──────────────────────
         if page is None:
-            # Map view - check cache first
-            ne_lat = request.query_params.get('ne_lat')
-            ne_lng = request.query_params.get('ne_lng')
-            sw_lat = request.query_params.get('sw_lat')
-            sw_lng = request.query_params.get('sw_lng')
-            
-            if ne_lat and ne_lng and sw_lat and sw_lng:
-                # Create cache key with version for smart invalidation
-                cache_version = get_cache_version()
-                cache_key_base = f"billboards_v{cache_version}_{ne_lat}_{ne_lng}_{sw_lat}_{sw_lng}_{zoom_level}_{use_clustering}"
-                cache_key = hashlib.md5(cache_key_base.encode()).hexdigest()
-                
-                # Try to get from cache (2 minute TTL)
-                cached_response = cache.get(cache_key)
-                if cached_response:
-                    logger.debug(f"Cache HIT for billboards map view: {cache_key[:16]}...")
-                    return Response(cached_response)
-                
-                logger.debug(f"Cache MISS for billboards map view: {cache_key[:16]}...")
-                
-                # Not in cache - fetch and process
-                serializer = self.get_serializer(queryset, many=True)
-                billboards_data = serializer.data
-                
-                # Apply clustering if requested
-                if use_clustering:
-                    billboard_count = len(billboards_data)
-                    # Auto-enable clustering for large datasets or low zoom
-                    if should_use_clustering(zoom_level, billboard_count) or use_clustering:
-                        clusters = cluster_billboards(billboards_data, zoom_level)
-                        response_data = {
-                            'count': billboard_count,
-                            'clustered_count': len(clusters),
-                            'clusters': clusters,
-                            'clustering_enabled': True,
-                            'zoom_level': zoom_level
-                        }
-                        # Cache for 2 minutes
-                        cache.set(cache_key, response_data, 120)
-                        return Response(response_data)
-                
-                # Return individual billboards (no clustering)
-                response_data = {
-                    'count': queryset.count(),
-                    'results': billboards_data,
-                    'clustering_enabled': False
-                }
-                # Cache for 2 minutes
-                cache.set(cache_key, response_data, 120)
-                return Response(response_data)
-            
-            # No map bounds - return without caching (list view)
+            bbox = (
+                {'ne_lat': ne_lat, 'ne_lng': ne_lng, 'sw_lat': sw_lat, 'sw_lng': sw_lng}
+                if has_bounds else None
+            )
+
+            cache_version = get_cache_version()
+            cache_key = hashlib.md5(
+                f"bbc_v{cache_version}_{ne_lat}_{ne_lng}_{sw_lat}_{sw_lng}_{zoom_level}_{use_clustering}".encode()
+            ).hexdigest()
+
+            if has_bounds:
+                cached = cache.get(cache_key)
+                if cached:
+                    logger.debug("Cache HIT billboard map: %s", cache_key[:12])
+                    return Response(cached)
+
             serializer = self.get_serializer(queryset, many=True)
-            billboards_data = serializer.data
-            
-            # Apply clustering if requested
-            if use_clustering:
-                billboard_count = len(billboards_data)
-                if should_use_clustering(zoom_level, billboard_count) or use_clustering:
-                    clusters = cluster_billboards(billboards_data, zoom_level)
-                    return Response({
-                        'count': billboard_count,
-                        'clustered_count': len(clusters),
-                        'clusters': clusters,
-                        'clustering_enabled': True,
-                        'zoom_level': zoom_level
-                    })
-            
-            return Response({
-                'count': queryset.count(),
-                'results': billboards_data,
-                'clustering_enabled': False
-            })
-        
-        # Paginated response (for list views - no clustering)
-        if page is not None:
-            serializer = self.get_serializer(page, many=True)
-            return self.get_paginated_response(serializer.data)
-        
-        serializer = self.get_serializer(queryset, many=True)
-        return Response(serializer.data)
+            billboards_data = list(serializer.data)
+            billboard_count = len(billboards_data)
+
+            if use_clustering and should_use_clustering(zoom_level, billboard_count):
+                clusters = cluster_billboards(billboards_data, zoom_level, bbox)
+                response_data = {
+                    'count': billboard_count,
+                    'clustered_count': len(clusters),
+                    'clusters': clusters,
+                    'clustering_enabled': True,
+                    'zoom_level': zoom_level,
+                }
+            else:
+                response_data = {
+                    'count': billboard_count,
+                    'results': billboards_data,
+                    'clustering_enabled': False,
+                }
+
+            if has_bounds:
+                cache.set(cache_key, response_data, 120)
+
+            return Response(response_data)
+
+        # ── PAGINATED LIST VIEW ────────────────────────────────────────────
+        serializer = self.get_serializer(page, many=True)
+        return self.get_paginated_response(serializer.data)
 
     def create(self, request, *args, **kwargs):
         """
