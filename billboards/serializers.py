@@ -1,5 +1,5 @@
 from rest_framework import serializers
-from .availability_utils import build_availability_payload, normalize_booked_dates
+from .availability_utils import build_availability_payload, normalize_booked_dates, get_availability_status
 from .models import Billboard, Wishlist
 
 
@@ -24,6 +24,87 @@ class BillboardPublicSummarySerializer(serializers.ModelSerializer):
 
     def get_count(self, obj):
         return 1
+
+
+class BillboardPreviewSerializer(serializers.ModelSerializer):
+    """Lightweight payload for map pin preview dialog before full detail."""
+
+    image = serializers.SerializerMethodField()
+    price = serializers.SerializerMethodField()
+    display_size = serializers.SerializerMethodField()
+    views_per_day = serializers.SerializerMethodField()
+    availability = serializers.SerializerMethodField()
+    lighting = serializers.SerializerMethodField()
+    is_in_wishlist = serializers.SerializerMethodField()
+
+    class Meta:
+        model = Billboard
+        fields = [
+            'id',
+            'city',
+            'road_name',
+            'image',
+            'price',
+            'display_size',
+            'views_per_day',
+            'availability',
+            'lighting',
+            'is_in_wishlist',
+        ]
+
+    def get_image(self, obj):
+        images = obj.images or []
+        return images[0] if images else None
+
+    def get_price(self, obj):
+        period = (obj.exposure_time or '').strip() or 'per month'
+        return {
+            'amount': obj.price_range,
+            'currency': 'PKR',
+            'period': period,
+        }
+
+    def get_display_size(self, obj):
+        width = obj.display_width
+        height = obj.display_height
+        if width and height:
+            label = f'{width} × {height} meters'
+        else:
+            label = None
+        return {
+            'width': width,
+            'height': height,
+            'unit': 'meters',
+            'label': label,
+        }
+
+    def get_views_per_day(self, obj):
+        return obj.average_daily_views
+
+    def get_availability(self, obj):
+        status, label = get_availability_status(obj)
+        payload = build_availability_payload(obj)
+        return {
+            'status': status,
+            'label': label,
+            'total_booked': payload['total_booked'],
+        }
+
+    def get_lighting(self, obj):
+        has_lighting = (obj.generator_backup or '').lower() == 'yes'
+        return {
+            'has_lighting': has_lighting,
+            'label': 'Lighting' if has_lighting else 'No lighting',
+        }
+
+    def get_is_in_wishlist(self, obj):
+        ids = self.context.get('wishlist_billboard_ids')
+        if ids is not None:
+            return obj.pk in ids
+        request = self.context.get('request')
+        if request and request.user.is_authenticated:
+            return Wishlist.objects.filter(user=request.user, billboard=obj).exists()
+        return False
 
 
 class BillboardSerializer(serializers.ModelSerializer):

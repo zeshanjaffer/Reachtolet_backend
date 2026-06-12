@@ -62,3 +62,16 @@ def build_availability_payload(billboard, from_date=None, to_date=None):
     if to_date:
         payload['to'] = to_date
     return payload
+
+
+def get_availability_status(billboard):
+    """Return (status, label) for preview/detail UI badges."""
+    if not billboard.is_active:
+        return 'inactive', 'Inactive'
+
+    today = datetime.now().date().isoformat()
+    booked_dates = normalize_booked_dates(billboard.unavailable_dates or [])
+    if today in booked_dates:
+        return 'booked', 'Booked'
+
+    return 'available', 'Available'

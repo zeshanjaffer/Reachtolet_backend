@@ -4,6 +4,7 @@ from .serializers import (
     BillboardSerializer,
     BillboardListSerializer,
     BillboardPublicSummarySerializer,
+    BillboardPreviewSerializer,
     BillboardAvailabilityUpdateSerializer,
     WishlistSerializer,
 )
@@ -29,7 +30,7 @@ from django.views.decorators.cache import cache_page
 from django.views.decorators.vary import vary_on_cookie
 from rest_framework.decorators import api_view, permission_classes
 from rest_framework.permissions import IsAuthenticated, IsAdminUser
-from django.db.models import Prefetch
+from django.db.models import Prefetch, Q
 from django.utils import timezone
 from drf_yasg.utils import swagger_auto_schema
 from drf_yasg import openapi
@@ -358,6 +359,38 @@ class BillboardAvailabilityView(APIView):
             },
             status=status.HTTP_200_OK,
         )
+
+
+class BillboardPreviewView(generics.RetrieveAPIView):
+    """
+    Lightweight preview for map pin tap (before full detail screen).
+    Available to all authenticated users for approved+active billboards;
+    media owners can also preview their own billboards.
+    """
+
+    serializer_class = BillboardPreviewSerializer
+    permission_classes = [IsAuthenticated]
+    lookup_url_kwarg = 'billboard_id'
+
+    def get_queryset(self):
+        user = self.request.user
+        public_qs = Q(is_active=True, approval_status='approved')
+        if user.is_authenticated and user.user_type == 'media_owner':
+            return Billboard.objects.filter(public_qs | Q(user=user))
+        return Billboard.objects.filter(public_qs)
+
+    def get_serializer_context(self):
+        context = super().get_serializer_context()
+        context['request'] = self.request
+        if self.request.user.is_authenticated:
+            context['wishlist_billboard_ids'] = frozenset(
+                Wishlist.objects.filter(user=self.request.user).values_list(
+                    'billboard_id', flat=True
+                )
+            )
+        else:
+            context['wishlist_billboard_ids'] = frozenset()
+        return context
 
 
 class BillboardDetailView(generics.RetrieveUpdateDestroyAPIView):
