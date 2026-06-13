@@ -1,1 +1,1 @@
-web: gunicorn core.wsgi:application --bind 0.0.0.0:${PORT:-8000} --workers 2
+web: daphne -b 0.0.0.0 -p ${PORT:-8000} core.asgi:application

@@ -35,6 +35,7 @@ INSTALLED_APPS = [
     'notifications',
     'admin_panel',
     'locations',
+    'chat',
 ]
 
 MIDDLEWARE = [
@@ -222,6 +223,7 @@ REDOC_SETTINGS = {
 
 os.makedirs(MEDIA_ROOT / 'profile_images', exist_ok=True)
 os.makedirs(MEDIA_ROOT / 'billboards', exist_ok=True)
+os.makedirs(MEDIA_ROOT / 'chat_attachments', exist_ok=True)
 
 # Billboard admin approval workflow (see billboards/views.py perform_create).
 # True = new billboards are approved immediately (map/list visible without admin).

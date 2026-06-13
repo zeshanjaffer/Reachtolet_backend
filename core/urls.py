@@ -25,6 +25,7 @@ urlpatterns = [
     path('api/users/', include('users.urls')),
     path('api/notifications/', include('notifications.urls')),
     path('api/admin-panel/', include('admin_panel.urls')),
+    path('api/chat/', include('chat.urls')),
     
     # Swagger/OpenAPI URLs
     re_path(r'^swagger(?P<format>\.json|\.yaml)$', schema_view.without_ui(cache_timeout=0), name='schema-json'),
