@@ -7,9 +7,11 @@ from .views import (
     ChatRoomByBillboardView,
     ChatRoomDetailView,
     ChatRoomListCreateView,
+    ChatUnreadSummaryView,
 )
 
 urlpatterns = [
+    path('unread/', ChatUnreadSummaryView.as_view(), name='chat-unread-summary'),
     path('rooms/', ChatRoomListCreateView.as_view(), name='chat-room-list-create'),
     path('rooms/by-billboard/<int:billboard_id>/', ChatRoomByBillboardView.as_view(), name='chat-room-by-billboard'),
     path('rooms/<int:room_id>/', ChatRoomDetailView.as_view(), name='chat-room-detail'),

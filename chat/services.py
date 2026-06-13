@@ -231,6 +231,32 @@ def serialize_message(message, request=None):
     }
 
 
+def get_room_unread_count(room, user):
+    """Count messages in room not sent by user and not yet read by user."""
+    unread_qs = ChatMessage.objects.filter(room=room).exclude(sender=user)
+    participant = ChatRoomParticipant.objects.filter(room=room, user=user).first()
+    if participant and participant.last_read_message_id:
+        unread_qs = unread_qs.filter(created_at__gt=participant.last_read_message.created_at)
+    return unread_qs.count()
+
+
+def get_unread_summary(user):
+    """Badge summary for advertiser and media owner inbox tabs."""
+    rooms = list_rooms_for_user(user).only('id')
+    by_room = []
+    total = 0
+    for room in rooms:
+        count = get_room_unread_count(room, user)
+        total += count
+        if count > 0:
+            by_room.append({'room_id': room.id, 'unread_count': count})
+    return {
+        'total_unread': total,
+        'rooms_with_unread': len(by_room),
+        'rooms': by_room,
+    }
+
+
 def serialize_room(room, user, request=None):
     other = room.other_user(user)
     last_message = (
@@ -240,11 +266,7 @@ def serialize_room(room, user, request=None):
         .order_by('-created_at')
         .first()
     )
-    unread_qs = ChatMessage.objects.filter(room=room).exclude(sender=user)
-    participant = ChatRoomParticipant.objects.filter(room=room, user=user).first()
-    if participant and participant.last_read_message_id:
-        unread_qs = unread_qs.filter(created_at__gt=participant.last_read_message.created_at)
-    unread_count = unread_qs.count()
+    unread_count = get_room_unread_count(room, user)
 
     billboard = room.billboard
     image = (billboard.images or [None])[0] if billboard.images else None

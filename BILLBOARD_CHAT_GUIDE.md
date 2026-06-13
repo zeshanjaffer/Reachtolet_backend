@@ -152,9 +152,57 @@ curl --location "$BASE_URL/api/chat/rooms/?page_size=20" \
 }
 ```
 
+Each room in `results[]` includes **`unread_count`** per thread (same field on room detail).
+
 ---
 
-### 3. Room detail
+### 3. Unread count summary (badge — both sides)
+
+Use this for the **Messages tab badge** on home screen. Works identically for **advertiser** and **media owner**.
+
+```bash
+curl --location "$BASE_URL/api/chat/unread/" \
+  --header "Authorization: Bearer $TOKEN"
+```
+
+**200 — advertiser example (1 unread from media owner reply):**
+
+```json
+{
+  "status_code": 200,
+  "total_unread": 1,
+  "rooms_with_unread": 1,
+  "rooms": [
+    { "room_id": 1, "unread_count": 1 }
+  ]
+}
+```
+
+**200 — all caught up:**
+
+```json
+{
+  "status_code": 200,
+  "total_unread": 0,
+  "rooms_with_unread": 0,
+  "rooms": []
+}
+```
+
+**How unread is calculated (both user types):**
+
+| Rule | Detail |
+|---|---|
+| Whose messages count | Messages **not sent by you** in your rooms |
+| Read cursor | After `POST /rooms/{id}/read/` or socket `messages_seen` |
+| Per room | Also on each item in `GET /api/chat/rooms/` as `unread_count` |
+| Per room detail | `GET /api/chat/rooms/{id}/` also includes `unread_count` |
+
+**Flutter tip:** Poll `GET /api/chat/unread/` on app resume, or refresh after `new_message` / `messages_seen` socket events.
+
+---
+
+### 4. Room detail
 
 ```bash
 curl --location "$BASE_URL/api/chat/rooms/1/" \
@@ -165,7 +213,7 @@ curl --location "$BASE_URL/api/chat/rooms/1/" \
 
 ---
 
-### 4. Create room (alternative POST)
+### 5. Create room (alternative POST)
 
 ```bash
 curl --location "$BASE_URL/api/chat/rooms/" \
@@ -178,7 +226,7 @@ Same response as by-billboard endpoint.
 
 ---
 
-### 5. List messages (paginated)
+### 6. List messages (paginated)
 
 ```bash
 curl --location "$BASE_URL/api/chat/rooms/1/messages/?page_size=50" \
@@ -212,7 +260,7 @@ curl --location "$BASE_URL/api/chat/rooms/1/messages/?page_size=50" \
 
 ---
 
-### 6. Send message (text + attachments)
+### 7. Send message (text + attachments)
 
 **Content-Type:** `multipart/form-data`
 
@@ -259,7 +307,7 @@ Also broadcasts Socket event `new_message` to room subscribers.
 
 ---
 
-### 7. Mark messages as read (seen)
+### 8. Mark messages as read (seen)
 
 ```bash
 curl --location "$BASE_URL/api/chat/rooms/1/read/" \
@@ -283,7 +331,7 @@ Also emits Socket `messages_seen` to the room.
 
 ---
 
-### 8. Mark single message delivered (REST fallback)
+### 9. Mark single message delivered (REST fallback)
 
 ```bash
 curl --location -X POST "$BASE_URL/api/chat/rooms/1/messages/2/delivered/" \

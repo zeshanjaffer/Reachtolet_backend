@@ -16,6 +16,7 @@ from .services import (
     ChatError,
     create_message,
     get_or_create_room,
+    get_unread_summary,
     get_room_for_user,
     list_rooms_for_user,
     mark_message_delivered,
@@ -26,6 +27,22 @@ from .services import (
 from . import socket_handlers
 
 logger = logging.getLogger(__name__)
+
+
+class ChatUnreadSummaryView(APIView):
+    """Total unread badge for advertiser and media owner (same logic both sides)."""
+
+    permission_classes = [permissions.IsAuthenticated]
+
+    def get(self, request):
+        summary = get_unread_summary(request.user)
+        return Response(
+            {
+                'status_code': status.HTTP_200_OK,
+                **summary,
+            },
+            status=status.HTTP_200_OK,
+        )
 
 
 class ChatRoomListCreateView(APIView):
