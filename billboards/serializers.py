@@ -1,5 +1,6 @@
 from rest_framework import serializers
 from .availability_utils import build_availability_payload, normalize_booked_dates, get_availability_status
+from .specifications_utils import normalize_specifications
 from .models import Billboard, Wishlist
 
 
@@ -107,6 +108,16 @@ class BillboardPreviewSerializer(serializers.ModelSerializer):
         return False
 
 
+class SpecificationsJSONField(serializers.JSONField):
+    """Accept JSON object or string (multipart form-data) for type-specific billboard data."""
+
+    def to_internal_value(self, data):
+        try:
+            return normalize_specifications(data)
+        except ValueError as exc:
+            raise serializers.ValidationError(str(exc)) from exc
+
+
 class BillboardSerializer(serializers.ModelSerializer):
     # OPTIMIZED: Add user_name field for better performance
     user_name = serializers.CharField(source='user.name', read_only=True)
@@ -119,6 +130,7 @@ class BillboardSerializer(serializers.ModelSerializer):
     # Wishlist status - check if current user has this billboard in wishlist
     is_in_wishlist = serializers.SerializerMethodField()
     availability = serializers.SerializerMethodField()
+    specifications = SpecificationsJSONField(required=False)
     
     class Meta:
         model = Billboard
@@ -127,7 +139,8 @@ class BillboardSerializer(serializers.ModelSerializer):
             'traffic_direction', 'road_position', 'road_name', 'exposure_time',
             'price_range', 'display_height', 'display_width', 'advertiser_phone',
             'advertiser_whatsapp', 'company_name', 'company_website',
-            'ooh_media_type', 'ooh_media_id', 'type', 'images', 'availability',
+            'ooh_media_type', 'ooh_media_id', 'type', 'images', 'specifications',
+            'availability',
             'latitude', 'longitude', 'views', 'leads', 'is_active', 'address',
             'generator_backup', 'created_at', 'user_name',
             # Approval workflow fields
@@ -176,6 +189,7 @@ class BillboardListSerializer(serializers.ModelSerializer):
     # Wishlist status - check if current user has this billboard in wishlist
     is_in_wishlist = serializers.SerializerMethodField()
     availability = serializers.SerializerMethodField()
+    specifications = SpecificationsJSONField(required=False)
     
     class Meta:
         model = Billboard
@@ -184,7 +198,8 @@ class BillboardListSerializer(serializers.ModelSerializer):
             'traffic_direction', 'road_position', 'road_name', 'exposure_time',
             'price_range', 'display_height', 'display_width', 'advertiser_phone',
             'advertiser_whatsapp', 'company_name', 'company_website',
-            'ooh_media_type', 'ooh_media_id', 'type', 'images', 'availability',
+            'ooh_media_type', 'ooh_media_id', 'type', 'images', 'specifications',
+            'availability',
             'latitude', 'longitude', 'views', 'leads', 'is_active', 'address',
             'generator_backup', 'created_at', 'user_name',
             # Approval workflow fields

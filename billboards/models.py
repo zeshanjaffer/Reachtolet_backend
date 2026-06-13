@@ -25,6 +25,11 @@ class Billboard(models.Model):
     ooh_media_id = models.CharField(max_length=100, blank=True, null=True)
     type = models.CharField(max_length=50, db_index=True)  # Added index for filtering
     images = models.JSONField(default=list, blank=True)  # List of image URLs
+    specifications = models.JSONField(
+        default=dict,
+        blank=True,
+        help_text='Type-specific config from frontend (digital slots, static pricing, etc.)',
+    )
     unavailable_dates = models.JSONField(default=list, blank=True)
     latitude = models.FloatField(blank=True, null=True, db_index=True)  # Indexed for map queries
     longitude = models.FloatField(blank=True, null=True, db_index=True)  # Indexed for map queries
