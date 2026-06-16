@@ -1,6 +1,9 @@
+from django.contrib.gis.db import models as gis_models
 from django.db import models
 from django.conf import settings
 from django.utils import timezone
+
+from .geo_utils import sync_billboard_location
 
 class Billboard(models.Model):
     user = models.ForeignKey(
@@ -33,6 +36,14 @@ class Billboard(models.Model):
     unavailable_dates = models.JSONField(default=list, blank=True)
     latitude = models.FloatField(blank=True, null=True, db_index=True)  # Indexed for map queries
     longitude = models.FloatField(blank=True, null=True, db_index=True)  # Indexed for map queries
+    location = gis_models.PointField(
+        geography=True,
+        srid=4326,
+        null=True,
+        blank=True,
+        spatial_index=True,
+        help_text='PostGIS geography point (synced from latitude/longitude)',
+    )
     views = models.IntegerField(default=0)  # NEW: View count field
     leads = models.IntegerField(default=0, db_index=True)  # NEW: Simple leads counter
     is_active = models.BooleanField(default=True, db_index=True)  # NEW: Active/inactive toggle with index
@@ -98,6 +109,10 @@ class Billboard(models.Model):
 
     def __str__(self):
         return f"{self.city} - {self.get_approval_status_display()}"
+
+    def save(self, *args, **kwargs):
+        sync_billboard_location(self)
+        super().save(*args, **kwargs)
 
     def increment_views(self):
         """Increment the view count for this billboard"""

@@ -4,6 +4,14 @@ import os
 
 BASE_DIR = Path(__file__).resolve().parent.parent
 
+# GDAL/GEOS (required for django.contrib.gis on Ubuntu)
+GDAL_LIBRARY_PATH = os.environ.get(
+    'GDAL_LIBRARY_PATH', '/usr/lib/x86_64-linux-gnu/libgdal.so'
+)
+GEOS_LIBRARY_PATH = os.environ.get(
+    'GEOS_LIBRARY_PATH', '/usr/lib/x86_64-linux-gnu/libgeos_c.so'
+)
+
 SECRET_KEY = 'django-insecure-=9xl#&msc(zpz=i91=&@(oy6)0cwntgict4@e3jzts#drdghbt'
 DEBUG = True
 # Accept any Host header (typical behind a reverse proxy or for EC2 public IP).
@@ -21,6 +29,7 @@ INSTALLED_APPS = [
     'django.contrib.sessions',
     'django.contrib.messages',
     'django.contrib.staticfiles',
+    'django.contrib.gis',
     # Third-party
     'rest_framework',
     'rest_framework_simplejwt',
@@ -73,7 +82,7 @@ ASGI_APPLICATION = 'core.asgi.application'
 
 DATABASES = {
     'default': {
-        'ENGINE': 'django.db.backends.postgresql',
+        'ENGINE': 'django.contrib.gis.db.backends.postgis',
         'NAME': 'postgres',
         'USER': 'postgres.tdfqrvzhfrkriuhbwnkf',
         'PASSWORD': 'zeshanopn1613m',

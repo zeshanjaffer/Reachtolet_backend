@@ -44,10 +44,13 @@ logger = logging.getLogger(__name__)
 
 class BillboardListCreateView(generics.ListCreateAPIView):
     def get_queryset(self):
-        # List: only fields needed for map markers; full data via detail endpoint
+        # Only mappable billboards: approved, active, valid PostGIS location.
         return Billboard.objects.filter(
             is_active=True,
             approval_status='approved',
+            location__isnull=False,
+            latitude__isnull=False,
+            longitude__isnull=False,
         ).only(
             'id',
             'latitude',
@@ -71,21 +74,37 @@ class BillboardListCreateView(generics.ListCreateAPIView):
 
     def paginate_queryset(self, queryset):
         """
-        Disable pagination when map bounds are provided (for map views).
-        Map views need all billboards in the visible area, not paginated results.
+        Disable pagination for map views (full bounds or cluster=true).
         """
-        # Check if map bounds are provided
         ne_lat = self.request.query_params.get('ne_lat')
         ne_lng = self.request.query_params.get('ne_lng')
         sw_lat = self.request.query_params.get('sw_lat')
         sw_lng = self.request.query_params.get('sw_lng')
-        
-        # If map bounds are provided, disable pagination (return all results)
+        use_clustering = self.request.query_params.get('cluster', 'false').lower() == 'true'
+
         if ne_lat and ne_lng and sw_lat and sw_lng:
-            return None  # No pagination for map views
-        
-        # Otherwise, use normal pagination for list views
+            return None
+        if use_clustering:
+            return None
+
         return super().paginate_queryset(queryset)
+
+    @staticmethod
+    def _empty_map_response(use_clustering, zoom_level=10.0):
+        """Stable map JSON while the client is still sending partial bounds."""
+        if use_clustering:
+            return {
+                'count': 0,
+                'clustered_count': 0,
+                'clusters': [],
+                'clustering_enabled': True,
+                'zoom_level': zoom_level,
+            }
+        return {
+            'count': 0,
+            'results': [],
+            'clustering_enabled': False,
+        }
 
     def list(self, request, *args, **kwargs):
         """
@@ -118,7 +137,13 @@ class BillboardListCreateView(generics.ListCreateAPIView):
         ne_lng = request.query_params.get('ne_lng')
         sw_lat = request.query_params.get('sw_lat')
         sw_lng = request.query_params.get('sw_lng')
-        has_bounds = bool(ne_lat and ne_lng and sw_lat and sw_lng)
+        bound_params = (ne_lat, ne_lng, sw_lat, sw_lng)
+        has_bounds = all(bound_params)
+        partial_bounds = any(bound_params) and not has_bounds
+
+        # Fast map drag often sends incomplete bounds — return empty map shape, not paginated JSON.
+        if partial_bounds:
+            return Response(self._empty_map_response(use_clustering, zoom_level))
 
         page = self.paginate_queryset(queryset)
 
@@ -458,7 +483,7 @@ class MyBillboardsView(generics.ListAPIView):
     pagination_class = CustomPagination
     filter_backends = [DjangoFilterBackend, SearchFilter, OrderingFilter]
     filterset_fields = ['city', 'ooh_media_type', 'type', 'is_active', 'approval_status']  # Added approval_status filter
-    search_fields = ['city', 'description', 'company_name']
+    search_fields = ['city', 'description', 'company_name', 'road_name']
     ordering_fields = ['created_at', 'price_range']
     ordering = ['-created_at']
 
@@ -496,7 +521,12 @@ class WishlistView(generics.ListCreateAPIView):
     permission_classes = [permissions.IsAuthenticated]
     pagination_class = CustomPagination
     filter_backends = [DjangoFilterBackend, SearchFilter, OrderingFilter]
-    search_fields = ['billboard__city', 'billboard__description', 'billboard__company_name']
+    search_fields = [
+        'billboard__city',
+        'billboard__description',
+        'billboard__company_name',
+        'billboard__road_name',
+    ]
     ordering_fields = ['created_at']
     ordering = ['-created_at']
 
