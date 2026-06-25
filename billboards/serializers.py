@@ -1,7 +1,7 @@
 from rest_framework import serializers
 from .availability_utils import build_availability_payload, normalize_booked_dates, get_availability_status
 from .specifications_utils import normalize_specifications
-from .models import Billboard, Wishlist
+from .models import Billboard, Wishlist, OohMediaType
 
 
 def _wishlist_ids_for_user(request):
@@ -131,6 +131,13 @@ class BillboardSerializer(serializers.ModelSerializer):
     is_in_wishlist = serializers.SerializerMethodField()
     availability = serializers.SerializerMethodField()
     specifications = SpecificationsJSONField(required=False)
+    media_type_id = serializers.PrimaryKeyRelatedField(
+        queryset=OohMediaType.objects.filter(is_active=True, is_selectable=True),
+        source='media_type',
+        write_only=True,
+        required=False,
+    )
+    media_type_detail = serializers.SerializerMethodField()
     
     class Meta:
         model = Billboard
@@ -139,7 +146,8 @@ class BillboardSerializer(serializers.ModelSerializer):
             'traffic_direction', 'road_position', 'road_name', 'exposure_time',
             'price_range', 'display_height', 'display_width', 'advertiser_phone',
             'advertiser_whatsapp', 'company_name', 'company_website',
-            'ooh_media_type', 'ooh_media_id', 'type', 'images', 'specifications',
+            'ooh_media_type', 'media_type_id', 'media_type_detail', 'ooh_media_id', 'type',
+            'images', 'specifications',
             'availability',
             'latitude', 'longitude', 'views', 'leads', 'is_active', 'address',
             'generator_backup', 'created_at', 'user_name',
@@ -149,10 +157,53 @@ class BillboardSerializer(serializers.ModelSerializer):
             # Wishlist status
             'is_in_wishlist'
         ]
-        read_only_fields = ('user', 'views', 'leads', 'created_at', 'is_active', 'user_name', 
-                           'approved_at', 'rejected_at', 'approved_by', 'rejected_by', 
+        read_only_fields = ('user', 'views', 'leads', 'created_at', 'is_active', 'user_name',
+                           'ooh_media_type', 'media_type_detail',
+                           'approved_at', 'rejected_at', 'approved_by', 'rejected_by',
                            'approval_status_display', 'approved_by_username', 'rejected_by_username',
                            'is_in_wishlist', 'availability')
+
+    def get_media_type_detail(self, obj):
+        if not obj.media_type_id:
+            return None
+        mt = obj.media_type
+        return {
+            'id': mt.id,
+            'name': mt.name,
+            'slug': mt.slug,
+            'category': mt.category,
+            'is_digital': mt.is_digital,
+        }
+
+    def validate(self, attrs):
+        media_type = attrs.get('media_type')
+        ooh_media_type = self.initial_data.get('ooh_media_type') if hasattr(self, 'initial_data') else None
+        if not media_type and not ooh_media_type and self.instance is None:
+            raise serializers.ValidationError({
+                'media_type_id': 'This field is required. Pick a type from GET /api/billboards/media-types/.',
+            })
+        if media_type and not media_type.is_selectable:
+            raise serializers.ValidationError({
+                'media_type_id': f'"{media_type.name}" is a group header, not a selectable media type.',
+            })
+        return attrs
+
+    def create(self, validated_data):
+        if 'media_type' not in validated_data and self.initial_data.get('ooh_media_type'):
+            name = str(self.initial_data.get('ooh_media_type')).strip()
+            mt = OohMediaType.objects.filter(name__iexact=name, is_active=True).first()
+            if mt:
+                validated_data['media_type'] = mt
+        validated_data['user'] = self.context['request'].user
+        return super().create(validated_data)
+
+    def update(self, instance, validated_data):
+        if 'media_type' not in validated_data and self.initial_data.get('ooh_media_type'):
+            name = str(self.initial_data.get('ooh_media_type')).strip()
+            mt = OohMediaType.objects.filter(name__iexact=name, is_active=True, is_selectable=True).first()
+            if mt:
+                validated_data['media_type'] = mt
+        return super().update(instance, validated_data)
 
     def get_availability(self, obj):
         payload = build_availability_payload(obj)
@@ -162,7 +213,6 @@ class BillboardSerializer(serializers.ModelSerializer):
         }
 
     def get_is_in_wishlist(self, obj):
-        """Check if the current user has this billboard in their wishlist"""
         ids = self.context.get('wishlist_billboard_ids')
         if ids is not None:
             return obj.pk in ids
@@ -170,11 +220,6 @@ class BillboardSerializer(serializers.ModelSerializer):
         if request and request.user.is_authenticated:
             return Wishlist.objects.filter(user=request.user, billboard=obj).exists()
         return False
-
-    def create(self, validated_data):
-        # Set the user from the request
-        validated_data['user'] = self.context['request'].user
-        return super().create(validated_data)
 
 
 class BillboardListSerializer(serializers.ModelSerializer):
@@ -190,6 +235,7 @@ class BillboardListSerializer(serializers.ModelSerializer):
     is_in_wishlist = serializers.SerializerMethodField()
     availability = serializers.SerializerMethodField()
     specifications = SpecificationsJSONField(required=False)
+    media_type_detail = serializers.SerializerMethodField()
     
     class Meta:
         model = Billboard
@@ -198,7 +244,7 @@ class BillboardListSerializer(serializers.ModelSerializer):
             'traffic_direction', 'road_position', 'road_name', 'exposure_time',
             'price_range', 'display_height', 'display_width', 'advertiser_phone',
             'advertiser_whatsapp', 'company_name', 'company_website',
-            'ooh_media_type', 'ooh_media_id', 'type', 'images', 'specifications',
+            'ooh_media_type', 'media_type_detail', 'ooh_media_id', 'type', 'images', 'specifications',
             'availability',
             'latitude', 'longitude', 'views', 'leads', 'is_active', 'address',
             'generator_backup', 'created_at', 'user_name',
@@ -212,6 +258,18 @@ class BillboardListSerializer(serializers.ModelSerializer):
                            'approved_at', 'rejected_at', 'approved_by', 'rejected_by',
                            'approval_status_display', 'approved_by_username', 'rejected_by_username',
                            'is_in_wishlist', 'availability')
+
+    def get_media_type_detail(self, obj):
+        if not obj.media_type_id:
+            return None
+        mt = obj.media_type
+        return {
+            'id': mt.id,
+            'name': mt.name,
+            'slug': mt.slug,
+            'category': mt.category,
+            'is_digital': mt.is_digital,
+        }
     
     def get_availability(self, obj):
         payload = build_availability_payload(obj)

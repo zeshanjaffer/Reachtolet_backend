@@ -5,6 +5,53 @@ from django.utils import timezone
 
 from .geo_utils import sync_billboard_location
 
+
+class OohMediaType(models.Model):
+    """Catalog of OOH media / billboard types for create-billboard picker."""
+
+    CATEGORY_DIGITAL = 'digital'
+    CATEGORY_STATIC = 'static'
+    CATEGORY_PLACE = 'place'
+    CATEGORY_TRANSIT = 'transit'
+    CATEGORY_OTHER = 'other'
+    CATEGORY_CHOICES = [
+        (CATEGORY_DIGITAL, 'Digital'),
+        (CATEGORY_STATIC, 'Static'),
+        (CATEGORY_PLACE, 'Place Based'),
+        (CATEGORY_TRANSIT, 'Transit & Mobile'),
+        (CATEGORY_OTHER, 'Other'),
+    ]
+
+    name = models.CharField(max_length=100, unique=True)
+    slug = models.SlugField(max_length=120, unique=True)
+    category = models.CharField(max_length=20, choices=CATEGORY_CHOICES, db_index=True)
+    parent = models.ForeignKey(
+        'self',
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        related_name='children',
+    )
+    is_selectable = models.BooleanField(
+        default=True,
+        help_text='False for group headers like "All Digital" (picker only shows selectable types).',
+    )
+    is_digital = models.BooleanField(
+        default=False,
+        help_text='True = use digital specifications JSON form on create.',
+    )
+    sort_order = models.PositiveIntegerField(default=0)
+    is_active = models.BooleanField(default=True, db_index=True)
+
+    class Meta:
+        ordering = ['sort_order', 'name']
+        verbose_name = 'OOH media type'
+        verbose_name_plural = 'OOH media types'
+
+    def __str__(self):
+        return self.name
+
+
 class Billboard(models.Model):
     user = models.ForeignKey(
         settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name='billboards', null=True, blank=True
@@ -24,7 +71,14 @@ class Billboard(models.Model):
     advertiser_whatsapp = models.CharField(max_length=100, blank=True, null=True)
     company_name = models.CharField(max_length=100, blank=True, null=True, db_index=True)  # Added index for filtering
     company_website = models.CharField(max_length=200, blank=True, null=True)  # Changed from URLField to CharField
-    ooh_media_type = models.CharField(max_length=100, db_index=True)  # Added index for filtering
+    ooh_media_type = models.CharField(max_length=100, db_index=True)  # synced from media_type.name
+    media_type = models.ForeignKey(
+        OohMediaType,
+        null=True,
+        blank=True,
+        on_delete=models.PROTECT,
+        related_name='billboards',
+    )
     ooh_media_id = models.CharField(max_length=100, blank=True, null=True)
     type = models.CharField(max_length=50, db_index=True)  # Added index for filtering
     images = models.JSONField(default=list, blank=True)  # List of image URLs
@@ -111,6 +165,8 @@ class Billboard(models.Model):
         return f"{self.city} - {self.get_approval_status_display()}"
 
     def save(self, *args, **kwargs):
+        if self.media_type_id:
+            self.ooh_media_type = self.media_type.name
         sync_billboard_location(self)
         super().save(*args, **kwargs)
 

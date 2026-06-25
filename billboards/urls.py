@@ -3,6 +3,7 @@ from .views import (
     BillboardListCreateView, 
     BillboardDetailView, 
     MyBillboardsView,
+    OohMediaTypeListView,
     WishlistView,
     WishlistRemoveView,
     WishlistToggleView,
@@ -18,6 +19,7 @@ from .views import (
 
 urlpatterns = [
     # Billboard endpoints
+    path('media-types/', OohMediaTypeListView.as_view(), name='billboard-media-types'),
     path('', BillboardListCreateView.as_view(), name='billboard-list-create'),
     path('my-billboards/', MyBillboardsView.as_view(), name='my-billboards'),
     path('<int:billboard_id>/preview/', BillboardPreviewView.as_view(), name='billboard-preview'),

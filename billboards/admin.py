@@ -1,12 +1,25 @@
 from django.contrib import admin
 from django.utils import timezone
-from .models import Billboard, Wishlist, Lead, View
+from .models import Billboard, Wishlist, Lead, View, OohMediaType
+
+
+@admin.register(OohMediaType)
+class OohMediaTypeAdmin(admin.ModelAdmin):
+    list_display = (
+        'id', 'name', 'slug', 'category', 'parent', 'is_selectable',
+        'is_digital', 'sort_order', 'is_active',
+    )
+    list_filter = ('category', 'is_selectable', 'is_digital', 'is_active')
+    search_fields = ('name', 'slug')
+    ordering = ('sort_order', 'name')
+    prepopulated_fields = {'slug': ('name',)}
+
 
 @admin.register(Billboard)
 class BillboardAdmin(admin.ModelAdmin):
     # Main list display with all important fields
     list_display = (
-        'id', 'get_user_email', 'ooh_media_id', 'city', 'ooh_media_type', 'type', 'company_name', 
+        'id', 'get_user_email', 'ooh_media_id', 'city', 'media_type', 'ooh_media_type', 'type', 'company_name',
         'price_range', 'road_name', 'number_of_boards', 'views', 'leads', 'is_active', 
         'approval_status', 'approved_at', 'approved_by', 'address', 'generator_backup', 'created_at'
     )
@@ -24,7 +37,7 @@ class BillboardAdmin(admin.ModelAdmin):
     
     # Filters for easy data management
     list_filter = (
-        'city', 'ooh_media_type', 'type', 'is_active', 'approval_status', 'generator_backup', 'created_at',
+        'city', 'media_type', 'ooh_media_type', 'type', 'is_active', 'approval_status', 'generator_backup', 'created_at',
         ('user', admin.RelatedOnlyFieldListFilter),
     )
     
@@ -34,7 +47,7 @@ class BillboardAdmin(admin.ModelAdmin):
             'fields': ('user', 'city', 'description', 'company_name', 'company_website')
         }),
         ('Media Details', {
-            'fields': ('ooh_media_type', 'ooh_media_id', 'type', 'number_of_boards')
+            'fields': ('media_type', 'ooh_media_type', 'ooh_media_id', 'type', 'number_of_boards')
         }),
         ('Location & Traffic', {
             'fields': ('road_name', 'road_position', 'traffic_direction', 'latitude', 'longitude', 'address')
@@ -131,7 +144,7 @@ class BillboardAdmin(admin.ModelAdmin):
     reject_billboards.short_description = "Reject selected pending billboards"
     
     def get_queryset(self, request):
-        return super().get_queryset(request).select_related('user')
+        return super().get_queryset(request).select_related('user', 'media_type')
 
 
 @admin.register(Wishlist)

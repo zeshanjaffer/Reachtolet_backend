@@ -1,5 +1,5 @@
 from rest_framework import generics, permissions, status
-from .models import Billboard, Wishlist, Lead, View
+from .models import Billboard, Wishlist, Lead, View, OohMediaType
 from .serializers import (
     BillboardSerializer,
     BillboardListSerializer,
@@ -9,13 +9,14 @@ from .serializers import (
     WishlistSerializer,
 )
 from .availability_utils import build_availability_payload, parse_date_param
+from .specifications_utils import parse_specifications_from_payload
 from .filters import BillboardFilter
 from .clustering import cluster_billboards, should_use_clustering
 from django.core.cache import cache
 from .signals import get_cache_version
 import hashlib
 from rest_framework.views import APIView
-from rest_framework.parsers import MultiPartParser, FormParser
+from rest_framework.parsers import MultiPartParser, FormParser, JSONParser
 from rest_framework.response import Response
 from django.conf import settings
 from django.core.files.storage import default_storage
@@ -35,12 +36,181 @@ from django.utils import timezone
 from drf_yasg.utils import swagger_auto_schema
 from drf_yasg import openapi
 from .permissions import IsMediaOwner, IsBillboardOwner
+from .media_types_data import CATEGORY_LABELS
+from .media_type_serializers import OohMediaTypePickerSerializer
 # WebSocket imports removed
 import os
 import uuid
 import logging
 
 logger = logging.getLogger(__name__)
+
+_CREATE_SKIP_FIELDS = frozenset({'unavailable_dates', 'booked_dates', 'availability'})
+
+
+def _parse_images_form_field(raw):
+    """Optional pre-uploaded URL list sent as JSON string in multipart `images` field."""
+    if raw is None or raw == '':
+        return []
+    if isinstance(raw, list):
+        return [u for u in raw if isinstance(u, str) and u]
+    if isinstance(raw, str):
+        import json
+        try:
+            parsed = json.loads(raw)
+        except json.JSONDecodeError:
+            return []
+        if isinstance(parsed, list):
+            return [u for u in parsed if isinstance(u, str) and u]
+    return []
+
+
+def upload_billboard_images_from_request(request):
+    """Upload images_0, images_1, … from multipart request. Returns (urls, error_response)."""
+    image_urls = []
+    if not request.FILES:
+        return image_urls, None
+
+    for file_key, file_obj in request.FILES.items():
+        if not file_key.startswith('images'):
+            continue
+        try:
+            allowed_types = ['image/jpeg', 'image/png', 'image/gif', 'image/webp', 'image/jpg']
+            if file_obj.content_type not in allowed_types:
+                return None, Response({
+                    'detail': f'Invalid file type for {file_key}: {file_obj.content_type}',
+                }, status=status.HTTP_400_BAD_REQUEST)
+
+            max_size = 10 * 1024 * 1024
+            if file_obj.size > max_size:
+                return None, Response({
+                    'detail': f'File too large for {file_key}. Maximum size is 10MB.',
+                }, status=status.HTTP_400_BAD_REQUEST)
+
+            file_extension = os.path.splitext(file_obj.name)[1] if file_obj.name else '.jpg'
+            if not file_extension:
+                if file_obj.content_type == 'image/png':
+                    file_extension = '.png'
+                elif file_obj.content_type in ['image/jpeg', 'image/jpg']:
+                    file_extension = '.jpg'
+                elif file_obj.content_type == 'image/gif':
+                    file_extension = '.gif'
+                elif file_obj.content_type == 'image/webp':
+                    file_extension = '.webp'
+                else:
+                    file_extension = '.jpg'
+
+            unique_filename = f"{uuid.uuid4().hex}{file_extension}"
+            file_path = f'billboards/{unique_filename}'
+            path = default_storage.save(file_path, file_obj)
+            image_urls.append(request.build_absolute_uri(f'{settings.MEDIA_URL}{path}'))
+        except Exception as exc:
+            return None, Response({
+                'detail': f'Upload failed for {file_key}: {exc}',
+            }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+    return image_urls, None
+
+
+def build_billboard_write_payload(request, uploaded_image_urls, *, is_update=False, existing_images=None):
+    """
+    Build serializer payload from multipart form.
+    File fields (images_0, images_1, …) are uploaded first; only URLs go to `images`.
+    """
+    payload = {}
+    for key in request.data:
+        if key in _CREATE_SKIP_FIELDS or key == 'images' or key.startswith('images_'):
+            continue
+        payload[key] = request.data.get(key)
+
+    payload = parse_specifications_from_payload(payload)
+
+    images_field = request.data.get('images')
+    if is_update:
+        if images_field not in (None, ''):
+            payload['images'] = _parse_images_form_field(images_field) + list(uploaded_image_urls)
+        elif uploaded_image_urls:
+            payload['images'] = list(existing_images or []) + list(uploaded_image_urls)
+    else:
+        payload['images'] = _parse_images_form_field(images_field) + list(uploaded_image_urls)
+
+    return payload
+
+
+# Backward-compatible alias used by create flow
+build_billboard_create_payload = build_billboard_write_payload
+
+
+class OohMediaTypeListView(APIView):
+    """
+    Media type picker for media owners creating billboards.
+    Returns grouped types (adbuq-style) plus a flat selectable list.
+    """
+
+    permission_classes = [IsMediaOwner]
+
+    def get(self, request):
+        types_qs = OohMediaType.objects.filter(is_active=True).order_by('sort_order', 'name')
+        selectable_qs = types_qs.filter(is_selectable=True)
+
+        search = (request.query_params.get('search') or '').strip()
+        if search:
+            selectable_qs = selectable_qs.filter(
+                Q(name__icontains=search) | Q(slug__icontains=search.replace(' ', '-'))
+            )
+
+        children_by_parent = {}
+        standalone_by_category = {}
+        for media_type in selectable_qs:
+            if media_type.parent_id:
+                children_by_parent.setdefault(media_type.parent_id, []).append(media_type)
+            else:
+                standalone_by_category.setdefault(media_type.category, []).append(media_type)
+
+        groups = []
+        for header_slug in ('all-digital', 'all-static'):
+            header = types_qs.filter(slug=header_slug, is_selectable=False).first()
+            if not header:
+                continue
+            group_types = children_by_parent.get(header.id, [])
+            if search and not group_types:
+                continue
+            groups.append({
+                'key': header.category,
+                'label': CATEGORY_LABELS.get(header.category, header.category),
+                'header': {
+                    'id': header.id,
+                    'name': header.name,
+                    'slug': header.slug,
+                    'is_selectable': False,
+                },
+                'types': OohMediaTypePickerSerializer(group_types, many=True).data,
+            })
+
+        for category in ('place', 'transit', 'other'):
+            category_types = standalone_by_category.get(category, [])
+            if not category_types:
+                continue
+            groups.append({
+                'key': category,
+                'label': CATEGORY_LABELS.get(category, category),
+                'header': None,
+                'types': OohMediaTypePickerSerializer(category_types, many=True).data,
+            })
+
+        message = 'Media types retrieved successfully'
+        if search:
+            message = f'Media types matching "{search}" retrieved successfully'
+
+        return Response({
+            'status_code': status.HTTP_200_OK,
+            'message': message,
+            'search': search or None,
+            'groups': groups,
+            'selectable': OohMediaTypePickerSerializer(selectable_qs, many=True).data,
+            'count': selectable_qs.count(),
+        }, status=status.HTTP_200_OK)
+
 
 class BillboardListCreateView(generics.ListCreateAPIView):
     def get_queryset(self):
@@ -211,68 +381,12 @@ class BillboardListCreateView(generics.ListCreateAPIView):
             }, status=status.HTTP_403_FORBIDDEN)
         
         # Handle image uploads
-        image_urls = []
-        if request.FILES:
-            for file_key, file_obj in request.FILES.items():
-                if file_key.startswith('images'):  # Accept multiple images like images_0, images_1, etc.
-                    try:
-                        # Validate file type
-                        allowed_types = ['image/jpeg', 'image/png', 'image/gif', 'image/webp', 'image/jpg']
-                        if file_obj.content_type not in allowed_types:
-                            return Response({
-                                'detail': f'Invalid file type for {file_key}: {file_obj.content_type}'
-                            }, status=status.HTTP_400_BAD_REQUEST)
-                        
-                        # Validate file size (10MB limit)
-                        max_size = 10 * 1024 * 1024
-                        if file_obj.size > max_size:
-                            return Response({
-                                'detail': f'File too large for {file_key}. Maximum size is 10MB.'
-                            }, status=status.HTTP_400_BAD_REQUEST)
-                        
-                        # Generate unique filename
-                        file_extension = os.path.splitext(file_obj.name)[1] if file_obj.name else '.jpg'
-                        if not file_extension:
-                            if file_obj.content_type == 'image/png':
-                                file_extension = '.png'
-                            elif file_obj.content_type in ['image/jpeg', 'image/jpg']:
-                                file_extension = '.jpg'
-                            elif file_obj.content_type == 'image/gif':
-                                file_extension = '.gif'
-                            elif file_obj.content_type == 'image/webp':
-                                file_extension = '.webp'
-                            else:
-                                file_extension = '.jpg'
-                        
-                        unique_filename = f"{uuid.uuid4().hex}{file_extension}"
-                        file_path = f'billboards/{unique_filename}'
-                        
-                        # Save file
-                        path = default_storage.save(file_path, file_obj)
-                        
-                        # Generate URL
-                        image_url = request.build_absolute_uri(f'{settings.MEDIA_URL}{path}')
-                        image_urls.append(image_url)
-                        
-                    except Exception as e:
-                        return Response({
-                            'detail': f'Upload failed for {file_key}: {str(e)}'
-                        }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+        image_urls, upload_error = upload_billboard_images_from_request(request)
+        if upload_error:
+            return upload_error
         
-        # Add uploaded image URLs to the request data
-        if image_urls:
-            # If images already in data, extend it; otherwise, set it
-            existing_images = request.data.getlist('images', [])
-            if isinstance(existing_images, list):
-                existing_images.extend(image_urls)
-            else:
-                existing_images = image_urls
-            request.data['images'] = existing_images
-        
-        payload = request.data.copy() if hasattr(request.data, 'copy') else dict(request.data)
-        payload.pop('unavailable_dates', None)
-        payload.pop('booked_dates', None)
-        payload.pop('availability', None)
+        # Build payload: uploaded files become URL list; never pass raw multipart `images` to JSONField.
+        payload = build_billboard_write_payload(request, image_urls)
 
         serializer = self.get_serializer(data=payload)
         serializer.is_valid(raise_exception=True)
@@ -402,9 +516,12 @@ class BillboardPreviewView(generics.RetrieveAPIView):
 
 class BillboardDetailView(generics.RetrieveUpdateDestroyAPIView):
     def get_queryset(self):
-        return Billboard.objects.select_related('user', 'approved_by', 'rejected_by')
+        return Billboard.objects.select_related(
+            'user', 'approved_by', 'rejected_by', 'media_type',
+        )
 
     serializer_class = BillboardSerializer
+    parser_classes = (MultiPartParser, FormParser, JSONParser)
 
     def get_serializer_context(self):
         context = super().get_serializer_context()
@@ -421,33 +538,68 @@ class BillboardDetailView(generics.RetrieveUpdateDestroyAPIView):
     
     permission_classes = [IsAuthenticated]
 
-    def update(self, request, *args, **kwargs):
-        instance = self.get_object()
-        
-        # Check if user is media_owner
+    def _check_owner_can_modify(self, request, instance):
         if request.user.user_type != 'media_owner':
             return Response({
-                'detail': 'Only media owners can update billboards.'
+                'detail': 'Only media owners can update billboards.',
             }, status=status.HTTP_403_FORBIDDEN)
-        
-        # Check if user owns this billboard
         if instance.user != request.user:
             return Response({
-                'detail': 'You can only update your own billboards.'
+                'detail': 'You can only update your own billboards.',
             }, status=status.HTTP_403_FORBIDDEN)
+        return None
 
+    @staticmethod
+    def _strip_reserved_update_fields(request):
         if hasattr(request.data, '_mutable'):
             request.data._mutable = True
-        if 'unavailable_dates' in request.data:
-            request.data.pop('unavailable_dates')
-        if 'booked_dates' in request.data:
-            request.data.pop('booked_dates')
-        if 'availability' in request.data:
-            request.data.pop('availability')
-        
-        response = super().update(request, *args, **kwargs)
-        # WebSocket notifications removed
-        return response
+        for field in ('unavailable_dates', 'booked_dates', 'availability', 'ooh_media_type'):
+            if field in request.data:
+                request.data.pop(field)
+
+    def _save_multipart_update(self, request, instance, *, partial):
+        image_urls, upload_error = upload_billboard_images_from_request(request)
+        if upload_error:
+            return upload_error
+
+        payload = build_billboard_write_payload(
+            request,
+            image_urls,
+            is_update=True,
+            existing_images=instance.images or [],
+        )
+        serializer = self.get_serializer(instance, data=payload, partial=partial)
+        serializer.is_valid(raise_exception=True)
+        serializer.save()
+        return Response(serializer.data, status=status.HTTP_200_OK)
+
+    def update(self, request, *args, **kwargs):
+        instance = self.get_object()
+        denied = self._check_owner_can_modify(request, instance)
+        if denied:
+            return denied
+
+        self._strip_reserved_update_fields(request)
+
+        content_type = getattr(request, 'content_type', '') or ''
+        if request.FILES or content_type.startswith('multipart/'):
+            return self._save_multipart_update(request, instance, partial=False)
+
+        return super().update(request, *args, **kwargs)
+
+    def partial_update(self, request, *args, **kwargs):
+        instance = self.get_object()
+        denied = self._check_owner_can_modify(request, instance)
+        if denied:
+            return denied
+
+        self._strip_reserved_update_fields(request)
+
+        content_type = getattr(request, 'content_type', '') or ''
+        if request.FILES or content_type.startswith('multipart/'):
+            return self._save_multipart_update(request, instance, partial=True)
+
+        return super().partial_update(request, *args, **kwargs)
 
     def destroy(self, request, *args, **kwargs):
         instance = self.get_object()
@@ -482,7 +634,7 @@ class MyBillboardsView(generics.ListAPIView):
     permission_classes = [permissions.IsAuthenticated]
     pagination_class = CustomPagination
     filter_backends = [DjangoFilterBackend, SearchFilter, OrderingFilter]
-    filterset_fields = ['city', 'ooh_media_type', 'type', 'is_active', 'approval_status']  # Added approval_status filter
+    filterset_fields = ['city', 'ooh_media_type', 'media_type_id', 'type', 'is_active', 'approval_status']
     search_fields = ['city', 'description', 'company_name', 'road_name']
     ordering_fields = ['created_at', 'price_range']
     ordering = ['-created_at']
@@ -501,7 +653,7 @@ class MyBillboardsView(generics.ListAPIView):
 
     def get_queryset(self):
         return Billboard.objects.filter(user=self.request.user).select_related(
-            'user', 'approved_by', 'rejected_by'
+            'user', 'approved_by', 'rejected_by', 'media_type',
         )
 
     def get_serializer_context(self):

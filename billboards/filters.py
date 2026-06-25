@@ -2,7 +2,7 @@ import django_filters
 from django_filters import rest_framework as filters
 
 from .geo_utils import apply_map_bounds_filter, apply_radius_filter
-from .models import Billboard
+from .models import Billboard, OohMediaType
 
 
 class BillboardFilter(filters.FilterSet):
@@ -10,7 +10,16 @@ class BillboardFilter(filters.FilterSet):
 
     ooh_media_type = filters.CharFilter(
         lookup_expr='iexact',
-        help_text='Filter by media type (Digital Billboard, Static Billboard, etc.)',
+        help_text='Legacy string filter (prefer media_type_id).',
+    )
+    media_type_id = filters.NumberFilter(
+        field_name='media_type_id',
+        help_text='Filter by OOH media type id from GET /api/billboards/media-types/.',
+    )
+    media_type = filters.ModelChoiceFilter(
+        field_name='media_type',
+        queryset=OohMediaType.objects.filter(is_active=True, is_selectable=True),
+        help_text='Same as media_type_id (slug-friendly alias).',
     )
     city = filters.CharFilter(
         lookup_expr='icontains',
@@ -24,7 +33,7 @@ class BillboardFilter(filters.FilterSet):
 
     class Meta:
         model = Billboard
-        fields = ['ooh_media_type', 'city', 'type']
+        fields = ['ooh_media_type', 'media_type_id', 'media_type', 'city', 'type']
 
     def filter_queryset(self, queryset):
         queryset = super().filter_queryset(queryset)
