@@ -2,6 +2,7 @@ from rest_framework import generics, permissions, status
 from .models import Billboard, Wishlist, Lead, View, OohMediaType
 from .serializers import (
     BillboardSerializer,
+    BillboardDetailSerializer,
     BillboardListSerializer,
     BillboardPublicSummarySerializer,
     BillboardPreviewSerializer,
@@ -522,6 +523,11 @@ class BillboardDetailView(generics.RetrieveUpdateDestroyAPIView):
 
     serializer_class = BillboardSerializer
     parser_classes = (MultiPartParser, FormParser, JSONParser)
+
+    def get_serializer_class(self):
+        if self.request.method == 'GET':
+            return BillboardDetailSerializer
+        return BillboardSerializer
 
     def get_serializer_context(self):
         context = super().get_serializer_context()

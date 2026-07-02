@@ -222,6 +222,20 @@ class BillboardSerializer(serializers.ModelSerializer):
         return False
 
 
+class BillboardDetailSerializer(BillboardSerializer):
+    """Public advertiser detail read — excludes owner analytics (views, leads)."""
+
+    class Meta(BillboardSerializer.Meta):
+        fields = [
+            f for f in BillboardSerializer.Meta.fields
+            if f not in ('views', 'leads')
+        ]
+        read_only_fields = tuple(
+            f for f in BillboardSerializer.Meta.read_only_fields
+            if f not in ('views', 'leads')
+        )
+
+
 class BillboardListSerializer(serializers.ModelSerializer):
     # OPTIMIZED: Lightweight serializer for list views with ALL fields
     user_name = serializers.CharField(source='user.name', read_only=True)
@@ -304,7 +318,7 @@ class BillboardAvailabilityUpdateSerializer(serializers.Serializer):
 
 
 class WishlistSerializer(serializers.ModelSerializer):
-    billboard = BillboardSerializer(read_only=True)
+    billboard = BillboardDetailSerializer(read_only=True)
     billboard_id = serializers.IntegerField(write_only=True)
 
     class Meta:
