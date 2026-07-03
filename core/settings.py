@@ -93,10 +93,9 @@ DATABASES = {
             'connect_timeout': 5,  # Reduced timeout to fail fast
             'options': '-c statement_timeout=30000',  # Reduced statement timeout
         },
-        # For Supabase free tier: disable persistent connections to prevent pool exhaustion
-        # Connections will be closed after each request (handled by middleware)
-        'CONN_MAX_AGE': 0,  # Disable persistent connections - close after each request
-        'CONN_HEALTH_CHECKS': False,  # Disable health checks to reduce overhead
+        # Reuse connections across requests (Supabase pooler). Override via DB_CONN_MAX_AGE.
+        'CONN_MAX_AGE': int(os.environ.get('DB_CONN_MAX_AGE', '120')),
+        'CONN_HEALTH_CHECKS': True,
         'ATOMIC_REQUESTS': False,  # Don't wrap each request in a transaction
     }
 }
@@ -238,5 +237,15 @@ os.makedirs(MEDIA_ROOT / 'chat_attachments', exist_ok=True)
 # True = new billboards are approved immediately (map/list visible without admin).
 # False = new billboards stay pending until admin uses /api/billboards/pending/ + approval-status/.
 BYPASS_BILLBOARD_APPROVAL = True
+
+# Celery (view/lead tracking + push notifications in background)
+CELERY_BROKER_URL = os.environ.get('CELERY_BROKER_URL', 'redis://127.0.0.1:6379/0')
+CELERY_RESULT_BACKEND = os.environ.get('CELERY_RESULT_BACKEND', CELERY_BROKER_URL)
+CELERY_ACCEPT_CONTENT = ['json']
+CELERY_TASK_SERIALIZER = 'json'
+CELERY_RESULT_SERIALIZER = 'json'
+CELERY_TIMEZONE = TIME_ZONE
+CELERY_TASK_TRACK_STARTED = True
+CELERY_TASK_ALWAYS_EAGER = os.environ.get('CELERY_TASK_ALWAYS_EAGER', '0') == '1'
 
 # Channels Configuration removed

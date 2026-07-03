@@ -1,5 +1,6 @@
 from django.contrib.gis.db import models as gis_models
 from django.db import models
+from django.db.models import F
 from django.conf import settings
 from django.utils import timezone
 
@@ -171,14 +172,12 @@ class Billboard(models.Model):
         super().save(*args, **kwargs)
 
     def increment_views(self):
-        """Increment the view count for this billboard"""
-        self.views += 1
-        self.save(update_fields=['views'])
-    
+        """Increment the view count for this billboard (prefer billboards.tracking + F())."""
+        Billboard.objects.filter(pk=self.pk).update(views=F('views') + 1)
+
     def increment_leads(self):
-        """Increment the leads count for this billboard"""
-        self.leads += 1
-        self.save(update_fields=['leads'])
+        """Increment the leads count for this billboard (prefer billboards.tracking + F())."""
+        Billboard.objects.filter(pk=self.pk).update(leads=F('leads') + 1)
     
     def toggle_active(self):
         """Toggle the active status of the billboard"""

@@ -1,5 +1,5 @@
 from rest_framework import generics, permissions, status
-from .models import Billboard, Wishlist, Lead, View, OohMediaType
+from .models import Billboard, Wishlist, OohMediaType
 from .serializers import (
     BillboardSerializer,
     BillboardDetailSerializer,
@@ -26,7 +26,7 @@ from django.utils.decorators import method_decorator
 from django_filters.rest_framework import DjangoFilterBackend
 from rest_framework.filters import SearchFilter, OrderingFilter
 from core.pagination import CustomPagination
-from core.responses import action_response
+from core.responses import action_response, accepted_response
 from django.utils.decorators import method_decorator
 from django.views.decorators.cache import cache_page
 from django.views.decorators.vary import vary_on_cookie
@@ -756,78 +756,60 @@ class WishlistToggleView(APIView):
             return action_response('Billboard not found', status.HTTP_404_NOT_FOUND)
 
 
-# Updated Lead Tracking View with Duplicate Prevention
+def _client_ip_and_agent(request):
+    x_forwarded_for = request.META.get('HTTP_X_FORWARDED_FOR')
+    if x_forwarded_for:
+        user_ip = x_forwarded_for.split(',')[0].strip()
+    else:
+        user_ip = request.META.get('REMOTE_ADDR')
+    user_agent = request.META.get('HTTP_USER_AGENT', '')
+    return user_ip, user_agent
+
+
+# View / lead tracking — 202 Accepted; Celery worker does DB + FCM
 @api_view(['POST'])
 @permission_classes([IsAuthenticated])
 def track_billboard_lead(request, billboard_id):
     """
-    Track a lead for a specific billboard (phone or WhatsApp click)
-    Owner's leads are never counted - simple and reliable check
+    Queue lead tracking (phone/WhatsApp click). Returns immediately;
+    worker handles dedup, F() counter increment, and owner push notification.
     """
-    try:
-        billboard = Billboard.objects.get(id=billboard_id)
-        
-        # IMPORTANT: Check if the current user is the billboard owner
-        # This prevents owners from inflating their own lead counts
-        if billboard.user and request.user.is_authenticated and billboard.user.id == request.user.id:
-            return action_response(
-                'Lead not tracked - owner viewing own billboard',
-                status.HTTP_200_OK,
-            )
-        
-        # Get client IP address
-        x_forwarded_for = request.META.get('HTTP_X_FORWARDED_FOR')
-        if x_forwarded_for:
-            user_ip = x_forwarded_for.split(',')[0].strip()
-        else:
-            user_ip = request.META.get('REMOTE_ADDR')
-        
-        # Get user agent
-        user_agent = request.META.get('HTTP_USER_AGENT', '')
-        
-        # Check for duplicate leads (same user or same IP for same billboard)
-        lead_exists = False
-        if request.user.is_authenticated:
-            # Check by authenticated user
-            lead_exists = Lead.objects.filter(
-                billboard=billboard,
-                user=request.user
-            ).exists()
-        else:
-            # Check by IP for unauthenticated users
-            if user_ip:
-                lead_exists = Lead.objects.filter(
-                    billboard=billboard,
-                    user_ip=user_ip
-                ).exists()
-        
-        if lead_exists:
-            return action_response(
-                'Lead already tracked for this billboard',
-                status.HTTP_200_OK,
-            )
-        
-        # Create new lead record
-        Lead.objects.create(
-            billboard=billboard,
-            user=request.user if request.user.is_authenticated else None,
-            user_ip=user_ip,
-            user_agent=user_agent
-        )
-        
-        # Increment the leads counter atomically
-        billboard.increment_leads()
-        
-        user_info = request.user.email if request.user.is_authenticated else user_ip
-        logger.info(f"New lead tracked for billboard {billboard_id} from {user_info}")
-        
-        return action_response('Lead tracked successfully', status.HTTP_200_OK)
+    from .tasks import track_billboard_lead_task
 
-    except Billboard.DoesNotExist:
-        return action_response('Billboard not found', status.HTTP_404_NOT_FOUND)
-    except Exception as e:
-        logger.error(f"Error tracking lead for billboard {billboard_id}: {str(e)}")
-        return action_response('Failed to track lead', status.HTTP_500_INTERNAL_SERVER_ERROR)
+    user_ip, user_agent = _client_ip_and_agent(request)
+    user_id = request.user.id if request.user.is_authenticated else None
+
+    track_billboard_lead_task.delay(
+        billboard_id=billboard_id,
+        user_id=user_id,
+        user_ip=user_ip,
+        user_agent=user_agent,
+    )
+    return accepted_response('Lead tracking accepted')
+
+
+@api_view(['POST'])
+@permission_classes([IsAuthenticated])
+def track_billboard_view(request, billboard_id):
+    """
+    Queue view tracking. Returns immediately;
+    worker handles dedup and F() counter increment.
+    """
+    from .tasks import track_billboard_view_task
+
+    user_ip, user_agent = _client_ip_and_agent(request)
+    user_id = request.user.id if request.user.is_authenticated else None
+
+    track_billboard_view_task.delay(
+        billboard_id=billboard_id,
+        user_id=user_id,
+        user_ip=user_ip,
+        user_agent=user_agent,
+    )
+    return accepted_response('View tracking accepted')
+
+
+# Legacy block removed — synchronous tracking replaced by Celery (see billboards/tasks.py)
 
 
 @method_decorator(csrf_exempt, name='dispatch')
@@ -988,78 +970,8 @@ def toggle_billboard_active(request, billboard_id):
             'error': 'Failed to toggle billboard status'
         }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
-# UPDATED: View tracking endpoint with duplicate prevention
-@api_view(['POST'])
-@permission_classes([IsAuthenticated])
-def track_billboard_view(request, billboard_id):
-    """
-    Track a view for a specific billboard
-    Owner's views are never counted - simple and reliable check
-    """
-    try:
-        billboard = Billboard.objects.get(id=billboard_id)
-        
-        # IMPORTANT: Check if the current user is the billboard owner
-        # This prevents owners from inflating their own view counts
-        if billboard.user and request.user.is_authenticated and billboard.user.id == request.user.id:
-            return action_response(
-                'View not tracked - owner viewing own billboard',
-                status.HTTP_200_OK,
-            )
-        
-        # Get client IP address
-        x_forwarded_for = request.META.get('HTTP_X_FORWARDED_FOR')
-        if x_forwarded_for:
-            user_ip = x_forwarded_for.split(',')[0].strip()
-        else:
-            user_ip = request.META.get('REMOTE_ADDR')
-        
-        # Get user agent
-        user_agent = request.META.get('HTTP_USER_AGENT', '')
-        
-        # Check for duplicate views (same user or same IP for same billboard)
-        view_exists = False
-        if request.user.is_authenticated:
-            # Check by authenticated user
-            view_exists = View.objects.filter(
-                billboard=billboard,
-                user=request.user
-            ).exists()
-        else:
-            # Check by IP for unauthenticated users
-            if user_ip:
-                view_exists = View.objects.filter(
-                    billboard=billboard,
-                    user_ip=user_ip
-                ).exists()
-        
-        if view_exists:
-            return action_response(
-                'View already tracked for this billboard',
-                status.HTTP_200_OK,
-            )
-        
-        # Create new view record
-        View.objects.create(
-            billboard=billboard,
-            user=request.user if request.user.is_authenticated else None,
-            user_ip=user_ip,
-            user_agent=user_agent
-        )
-        
-        # Increment the views counter atomically
-        billboard.increment_views()
-        
-        user_info = request.user.email if request.user.is_authenticated else user_ip
-        logger.info(f"New view tracked for billboard {billboard_id} from {user_info}")
-        
-        return action_response('View tracked successfully', status.HTTP_200_OK)
 
-    except Billboard.DoesNotExist:
-        return action_response('Billboard not found', status.HTTP_404_NOT_FOUND)
-    except Exception as e:
-        logger.error(f"Error tracking view for billboard {billboard_id}: {str(e)}")
-        return action_response('Failed to track view', status.HTTP_500_INTERNAL_SERVER_ERROR)
+# UPDATED: View tracking — see track_billboard_view above (Celery 202)
 
 class HealthCheckView(APIView):
     permission_classes = [permissions.AllowAny]

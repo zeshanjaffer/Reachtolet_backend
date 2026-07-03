@@ -12,6 +12,11 @@ def action_response(message, status_code):
     )
 
 
+def accepted_response(message='Request accepted for processing'):
+    """202 Accepted — work continues in background (e.g. Celery)."""
+    return action_response(message, 202)
+
+
 def auth_response(message, status_code, access, refresh, user=None):
     """Auth response with JWT tokens for login, register, and refresh."""
     payload = {

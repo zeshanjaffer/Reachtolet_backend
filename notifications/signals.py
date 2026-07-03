@@ -3,55 +3,13 @@ from django.dispatch import receiver
 from django.contrib.contenttypes.models import ContentType
 from .models import NotificationType
 from .services import push_service
-from billboards.models import Lead, View, Wishlist, Billboard
+from billboards.models import Wishlist, Billboard
 import logging
 
 logger = logging.getLogger(__name__)
 
-@receiver(post_save, sender=Lead)
-def send_lead_notification(sender, instance, created, **kwargs):
-    """Send notification when a new lead is created"""
-    if created and instance.billboard.user:
-        try:
-            # Send notification to billboard owner
-            push_service.send_notification(
-                user=instance.billboard.user,
-                notification_type=NotificationType.NEW_LEAD,
-                title="New Lead! 🎉",
-                body=f"Someone showed interest in your billboard in {instance.billboard.city}",
-                data={
-                    'billboard_id': str(instance.billboard.id),
-                    'billboard_city': instance.billboard.city,
-                    'lead_count': instance.billboard.leads
-                },
-                content_object=instance.billboard
-            )
-            logger.info(f"Lead notification sent to user {instance.billboard.user.id}")
-        except Exception as e:
-            logger.error(f"Failed to send lead notification: {str(e)}")
-
-@receiver(post_save, sender=View)
-def send_view_notification(sender, instance, created, **kwargs):
-    """Send notification when a new view is created (optional, can be rate limited)"""
-    if created and instance.billboard.user:
-        try:
-            # Only send view notifications for significant milestones (e.g., every 10 views)
-            if instance.billboard.views % 10 == 0 and instance.billboard.views > 0:
-                push_service.send_notification(
-                    user=instance.billboard.user,
-                    notification_type=NotificationType.NEW_VIEW,
-                    title="Views Milestone! 👀",
-                    body=f"Your billboard in {instance.billboard.city} reached {instance.billboard.views} views!",
-                    data={
-                        'billboard_id': str(instance.billboard.id),
-                        'billboard_city': instance.billboard.city,
-                        'view_count': instance.billboard.views
-                    },
-                    content_object=instance.billboard
-                )
-                logger.info(f"View milestone notification sent to user {instance.billboard.user.id}")
-        except Exception as e:
-            logger.error(f"Failed to send view notification: {str(e)}")
+# Lead/View push notifications are sent from billboards.tracking (Celery worker),
+# not synchronously on post_save — keeps track-view/track-lead APIs fast.
 
 @receiver(post_save, sender=Wishlist)
 def send_wishlist_notification(sender, instance, created, **kwargs):
