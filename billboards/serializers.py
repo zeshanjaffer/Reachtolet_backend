@@ -303,6 +303,109 @@ class BillboardListSerializer(serializers.ModelSerializer):
         return False
 
 
+APPROVAL_STATUS_CHOICES = ('pending', 'approved', 'rejected')
+
+
+class MyBillboardsListRequestSerializer(serializers.Serializer):
+    """POST body for /my-billboards/ (pending / approved / rejected tabs)."""
+
+    approval_status = serializers.ChoiceField(choices=APPROVAL_STATUS_CHOICES)
+    page = serializers.IntegerField(min_value=1, default=1, required=False)
+    page_size = serializers.IntegerField(min_value=1, max_value=100, default=20, required=False)
+    search = serializers.CharField(required=False, allow_blank=True, default='')
+    city = serializers.CharField(required=False, allow_blank=True, default='')
+    media_type_id = serializers.IntegerField(required=False, allow_null=True, default=None)
+    type = serializers.CharField(required=False, allow_blank=True, default='')
+    is_active = serializers.BooleanField(required=False, allow_null=True, default=None)
+    ordering = serializers.CharField(required=False, default='-created_at')
+
+    def validate_ordering(self, value):
+        field = value.lstrip('-')
+        if field not in ('created_at', 'price_range'):
+            raise serializers.ValidationError(
+                'ordering must be created_at, -created_at, price_range, or -price_range'
+            )
+        return value
+
+
+class BillboardOwnerTileSerializer(serializers.ModelSerializer):
+    """Lightweight tile payload for media-owner approval tabs."""
+
+    approval_status_display = serializers.CharField(
+        source='get_approval_status_display', read_only=True,
+    )
+    image = serializers.SerializerMethodField()
+    price = serializers.SerializerMethodField()
+    display_size = serializers.SerializerMethodField()
+    media_type_name = serializers.SerializerMethodField()
+    subtitle = serializers.SerializerMethodField()
+
+    class Meta:
+        model = Billboard
+        fields = [
+            'id', 'city', 'road_name', 'image', 'price', 'display_size',
+            'media_type_name', 'approval_status', 'approval_status_display',
+            'is_active', 'created_at', 'subtitle',
+            'views', 'leads', 'approved_at',
+            'rejection_reason', 'rejected_at',
+        ]
+        read_only_fields = fields
+
+    def get_image(self, obj):
+        images = obj.images or []
+        return images[0] if images else None
+
+    def get_price(self, obj):
+        period = (obj.exposure_time or '').strip() or 'per month'
+        return {
+            'amount': obj.price_range,
+            'currency': 'PKR',
+            'period': period,
+        }
+
+    def get_display_size(self, obj):
+        width = obj.display_width
+        height = obj.display_height
+        if width and height:
+            label = f'{width} × {height} meters'
+        else:
+            label = None
+        return {'label': label}
+
+    def get_media_type_name(self, obj):
+        if obj.media_type_id:
+            return obj.media_type.name
+        return obj.ooh_media_type or None
+
+    def get_subtitle(self, obj):
+        if obj.approval_status == 'pending':
+            return 'Awaiting admin approval'
+        if obj.approval_status == 'rejected' and obj.rejection_reason:
+            reason = obj.rejection_reason.strip()
+            return reason[:120] + ('…' if len(reason) > 120 else '')
+        return None
+
+    def to_representation(self, instance):
+        data = super().to_representation(instance)
+        status = instance.approval_status
+
+        if status == 'pending':
+            for key in ('views', 'leads', 'approved_at', 'rejection_reason', 'rejected_at'):
+                data.pop(key, None)
+        elif status == 'approved':
+            for key in ('rejection_reason', 'rejected_at', 'subtitle'):
+                if data.get(key) is None:
+                    data.pop(key, None)
+        elif status == 'rejected':
+            for key in ('views', 'leads', 'approved_at'):
+                data.pop(key, None)
+
+        return {k: v for k, v in data.items() if v is not None or k in (
+            'id', 'approval_status', 'approval_status_display', 'is_active', 'created_at',
+            'image', 'price', 'display_size', 'media_type_name', 'city', 'road_name',
+        )}
+
+
 class BillboardAvailabilityUpdateSerializer(serializers.Serializer):
     booked_dates = serializers.ListField(
         child=serializers.CharField(),

@@ -7,6 +7,8 @@ from .serializers import (
     BillboardPublicSummarySerializer,
     BillboardPreviewSerializer,
     BillboardAvailabilityUpdateSerializer,
+    BillboardOwnerTileSerializer,
+    MyBillboardsListRequestSerializer,
     WishlistSerializer,
 )
 from .availability_utils import build_availability_payload, parse_date_param
@@ -32,6 +34,7 @@ from django.views.decorators.cache import cache_page
 from django.views.decorators.vary import vary_on_cookie
 from rest_framework.decorators import api_view, permission_classes
 from rest_framework.permissions import IsAuthenticated, IsAdminUser
+from django.core.paginator import Paginator, EmptyPage
 from django.db.models import Prefetch, Q
 from django.utils import timezone
 from drf_yasg.utils import swagger_auto_schema
@@ -635,42 +638,99 @@ class BillboardDetailView(generics.RetrieveUpdateDestroyAPIView):
         """WebSocket notifications removed - no longer needed"""
         pass
 
-class MyBillboardsView(generics.ListAPIView):
-    serializer_class = BillboardListSerializer
-    permission_classes = [permissions.IsAuthenticated]
-    pagination_class = CustomPagination
-    filter_backends = [DjangoFilterBackend, SearchFilter, OrderingFilter]
-    filterset_fields = ['city', 'ooh_media_type', 'media_type_id', 'type', 'is_active', 'approval_status']
-    search_fields = ['city', 'description', 'company_name', 'road_name']
-    ordering_fields = ['created_at', 'price_range']
-    ordering = ['-created_at']
+
+def post_my_billboards_by_status(request):
+    """
+    Shared POST handler: filter owner billboards by approval_status (pending / approved / rejected).
+    Lightweight tile payload — replaces GET ?approval_status= query param.
+    """
+    if request.user.user_type != 'media_owner':
+        return Response({
+            'detail': (
+                'Only media owners can access their billboards. '
+                'You are registered as an advertiser.'
+            ),
+        }, status=status.HTTP_403_FORBIDDEN)
+
+    req = MyBillboardsListRequestSerializer(data=request.data)
+    req.is_valid(raise_exception=True)
+    params = req.validated_data
+
+    qs = Billboard.objects.filter(
+        user=request.user,
+        approval_status=params['approval_status'],
+    ).select_related('media_type')
+
+    if params.get('city'):
+        qs = qs.filter(city__icontains=params['city'])
+    if params.get('media_type_id') is not None:
+        qs = qs.filter(media_type_id=params['media_type_id'])
+    if params.get('type'):
+        qs = qs.filter(type=params['type'])
+    if params.get('is_active') is not None:
+        qs = qs.filter(is_active=params['is_active'])
+    if params.get('search'):
+        term = params['search']
+        qs = qs.filter(
+            Q(city__icontains=term)
+            | Q(description__icontains=term)
+            | Q(company_name__icontains=term)
+            | Q(road_name__icontains=term)
+        )
+
+    qs = qs.order_by(params.get('ordering', '-created_at'))
+
+    page_size = params.get('page_size', 20)
+    page_num = params.get('page', 1)
+    paginator = Paginator(qs, page_size)
+    total_pages = paginator.num_pages or 1
+
+    try:
+        page_obj = paginator.page(page_num)
+    except EmptyPage:
+        if paginator.count:
+            page_obj = paginator.page(total_pages)
+        else:
+            page_obj = None
+
+    results = BillboardOwnerTileSerializer(
+        page_obj.object_list if page_obj else [],
+        many=True,
+    ).data
+
+    return Response({
+        'status_code': status.HTTP_200_OK,
+        'message': 'Billboards fetched successfully',
+        'links': {
+            'next': page_num + 1 if page_num < total_pages else None,
+            'previous': page_num - 1 if page_num > 1 else None,
+        },
+        'count': paginator.count,
+        'total_pages': total_pages,
+        'current_page': page_num if page_obj else 1,
+        'results': results,
+    }, status=status.HTTP_200_OK)
+
+
+class MyBillboardsView(APIView):
+    """
+    Media owner billboards by approval status — POST only (pending / approved / rejected).
+    Returns lightweight tile payloads. GET is no longer supported.
+    """
+
+    permission_classes = [IsAuthenticated]
 
     def get(self, request, *args, **kwargs):
-        """
-        Override get to check if user is media_owner before allowing access
-        """
-        # Check if user is media_owner
-        if request.user.user_type != 'media_owner':
-            return Response({
-                'detail': 'Only media owners can access their billboards. You are registered as an advertiser.'
-            }, status=status.HTTP_403_FORBIDDEN)
-        
-        return super().get(request, *args, **kwargs)
+        return Response({
+            'detail': (
+                'GET is not supported. Use POST with JSON body '
+                '{"approval_status": "pending"|"approved"|"rejected", "page": 1}. '
+                'See BILLBOARD_MY_BILLBOARDS_FLUTTER_GUIDE.md.'
+            ),
+        }, status=status.HTTP_405_METHOD_NOT_ALLOWED)
 
-    def get_queryset(self):
-        return Billboard.objects.filter(user=self.request.user).select_related(
-            'user', 'approved_by', 'rejected_by', 'media_type',
-        )
-
-    def get_serializer_context(self):
-        context = super().get_serializer_context()
-        context['request'] = self.request
-        context['wishlist_billboard_ids'] = frozenset(
-            Wishlist.objects.filter(user=self.request.user).values_list(
-                'billboard_id', flat=True
-            )
-        )
-        return context
+    def post(self, request, *args, **kwargs):
+        return post_my_billboards_by_status(request)
 
 
 class WishlistView(generics.ListCreateAPIView):

@@ -119,7 +119,10 @@ def main() -> int:
                 ("GET", "/api/notifications/notifications/", {"auth_user": user}),
                 ("GET", "/api/notifications/stats/", {"auth_user": user}),
                 ("GET", "/api/notifications/preferences/", {"auth_user": user}),
-                ("GET", "/api/billboards/my-billboards/", {"auth_user": user}),
+                ("POST", "/api/billboards/my-billboards/", {
+                    "auth_user": user,
+                    "data": {"approval_status": "approved", "page": 1},
+                }),
                 ("GET", "/api/billboards/wishlist/", {"auth_user": user}),
                 ("GET", "/api/admin-panel/admin/campaigns/", {"auth_user": user}),
                 ("GET", "/api/admin-panel/admin/templates/", {"auth_user": user}),
