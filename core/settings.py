@@ -93,8 +93,8 @@ DATABASES = {
             'connect_timeout': 5,  # Reduced timeout to fail fast
             'options': '-c statement_timeout=30000',  # Reduced statement timeout
         },
-        # Reuse connections across requests (Supabase pooler). Override via DB_CONN_MAX_AGE.
-        'CONN_MAX_AGE': int(os.environ.get('DB_CONN_MAX_AGE', '120')),
+        # Session pooler (port 5432) allows ~15 clients — keep 0 unless using transaction pooler (6543).
+        'CONN_MAX_AGE': int(os.environ.get('DB_CONN_MAX_AGE', '0')),
         'CONN_HEALTH_CHECKS': True,
         'ATOMIC_REQUESTS': False,  # Don't wrap each request in a transaction
     }

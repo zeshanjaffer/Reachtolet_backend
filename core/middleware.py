@@ -14,25 +14,19 @@ class CloseOldConnectionsMiddleware(MiddlewareMixin):
     """
     
     def process_response(self, request, response):
-        """Close old connections after response is sent"""
-        # Close all database connections older than CONN_MAX_AGE
+        """Close DB connections after each request (critical for Supabase session pooler)."""
         for conn in connections.all():
             try:
-                # Force close old connections
-                if conn.connection is not None:
-                    # Check if connection is stale
-                    conn.close_if_unusable_or_obsolete()
+                conn.close()
             except Exception as e:
                 logger.warning(f"Error closing database connection: {e}")
-        
         return response
-    
+
     def process_exception(self, request, exception):
         """Close connections even if there's an exception"""
         for conn in connections.all():
             try:
-                if conn.connection is not None:
-                    conn.close_if_unusable_or_obsolete()
+                conn.close()
             except Exception:
                 pass
         return None

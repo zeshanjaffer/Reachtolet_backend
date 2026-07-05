@@ -10,7 +10,7 @@ Group=ubuntu
 WorkingDirectory=/home/ubuntu/Reachtolet_backend
 Environment=PUBLIC_BASE_URL=http://16.16.160.64:8000
 Environment=CELERY_BROKER_URL=redis://127.0.0.1:6379/0
-Environment=DB_CONN_MAX_AGE=120
+Environment=DB_CONN_MAX_AGE=0
 ExecStart=/home/ubuntu/Reachtolet_backend/.venv/bin/celery -A core worker --loglevel=info --concurrency=2
 Restart=always
 RestartSec=5
