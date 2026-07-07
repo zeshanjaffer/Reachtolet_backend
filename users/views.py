@@ -22,7 +22,14 @@ import logging
 
 logger = logging.getLogger(__name__)
 
-GOOGLE_CLIENT_ID = "971707519453-srarmkadprdmpgv385312cgfckok9eku.apps.googleusercontent.com"
+def _google_allowed_audiences():
+    """
+    Return allowed Google OAuth client IDs from env.
+    Supports one or many values (comma-separated).
+    """
+    raw = os.environ.get("GOOGLE_CLIENT_IDS") or os.environ.get("GOOGLE_CLIENT_ID", "")
+    values = [item.strip() for item in raw.split(",") if item.strip()]
+    return set(values)
 
 class CustomTokenObtainPairView(TokenObtainPairView):
     """Custom login view that accepts email instead of username"""
@@ -189,7 +196,17 @@ class GoogleLoginView(APIView):
         if resp.status_code != 200:
             return action_response('Invalid Google token.', status.HTTP_400_BAD_REQUEST)
         data = resp.json()
-        if data.get('aud') != GOOGLE_CLIENT_ID:
+        token_aud = data.get('aud')
+        allowed_audiences = _google_allowed_audiences()
+        if not allowed_audiences:
+            logger.error("Google login misconfigured: GOOGLE_CLIENT_ID(S) not set")
+            return action_response('Google login is not configured.', status.HTTP_500_INTERNAL_SERVER_ERROR)
+        if token_aud not in allowed_audiences:
+            logger.warning(
+                "Google login invalid audience: token_aud=%s expected_one_of=%s",
+                token_aud,
+                sorted(allowed_audiences),
+            )
             return action_response('Invalid audience.', status.HTTP_400_BAD_REQUEST)
         email = data.get('email')
         if not email:
