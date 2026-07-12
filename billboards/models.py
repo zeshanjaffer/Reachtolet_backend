@@ -53,6 +53,49 @@ class OohMediaType(models.Model):
         return self.name
 
 
+class OohMediaTypeAttribute(models.Model):
+    """Dynamic specification field definition for an OOH media type."""
+
+    FIELD_TEXT = 'text'
+    FIELD_NUMBER = 'number'
+    FIELD_INTEGER = 'integer'
+    FIELD_BOOLEAN = 'boolean'
+    FIELD_SELECT = 'select'
+    FIELD_MULTISELECT = 'multiselect'
+    FIELD_TYPE_CHOICES = [
+        (FIELD_TEXT, 'Text'),
+        (FIELD_NUMBER, 'Number'),
+        (FIELD_INTEGER, 'Integer'),
+        (FIELD_BOOLEAN, 'Boolean'),
+        (FIELD_SELECT, 'Select'),
+        (FIELD_MULTISELECT, 'Multi-select'),
+    ]
+
+    media_type = models.ForeignKey(
+        OohMediaType,
+        on_delete=models.CASCADE,
+        related_name='attributes',
+    )
+    key = models.SlugField(max_length=80)
+    label = models.CharField(max_length=120)
+    field_type = models.CharField(max_length=20, choices=FIELD_TYPE_CHOICES)
+    required = models.BooleanField(default=False)
+    options = models.JSONField(null=True, blank=True)
+    validation = models.JSONField(null=True, blank=True)
+    order = models.PositiveIntegerField(default=0)
+    help_text = models.CharField(max_length=255, blank=True, default='')
+    is_active = models.BooleanField(default=True)
+
+    class Meta:
+        ordering = ['order', 'id']
+        unique_together = [('media_type', 'key')]
+        verbose_name = 'OOH media type attribute'
+        verbose_name_plural = 'OOH media type attributes'
+
+    def __str__(self):
+        return f'{self.media_type.slug}.{self.key}'
+
+
 class Billboard(models.Model):
     user = models.ForeignKey(
         settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name='billboards', null=True, blank=True
@@ -66,6 +109,12 @@ class Billboard(models.Model):
     road_name = models.CharField(max_length=100, blank=True, null=True)
     exposure_time = models.CharField(max_length=100, blank=True, null=True)
     price_range = models.CharField(max_length=100, blank=True, null=True)
+    currency = models.CharField(
+        max_length=3,
+        blank=True,
+        null=True,
+        help_text='ISO 4217 currency code copied from owner preferred_currency on create',
+    )
     display_height = models.CharField(max_length=20, blank=True, null=True)
     display_width = models.CharField(max_length=20, blank=True, null=True)
     advertiser_phone = models.CharField(max_length=20, blank=True, null=True)

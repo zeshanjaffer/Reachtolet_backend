@@ -17,6 +17,55 @@ class NotificationType(models.TextChoices):
     PRICE_UPDATE = 'price_update', 'Price Update'
     SYSTEM_MESSAGE = 'system_message', 'System Message'
     WELCOME = 'welcome', 'Welcome Message'
+    NEW_CHAT_MESSAGE = 'new_chat_message', 'New Chat Message'
+    BOOKING_REQUESTED = 'booking_requested', 'Booking Requested'
+    BOOKING_ACCEPTED = 'booking_accepted', 'Booking Accepted'
+    BOOKING_REJECTED = 'booking_rejected', 'Booking Rejected'
+    BOOKING_CONTENT_SUBMITTED = 'booking_content_submitted', 'Booking Content Submitted'
+    BOOKING_CONTENT_REJECTED = 'booking_content_rejected', 'Booking Content Rejected'
+    BOOKING_CONFIRMED = 'booking_confirmed', 'Booking Confirmed'
+
+
+class UserNotification(models.Model):
+    """In-app notification inbox row (independent of FCM delivery)."""
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    recipient = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.CASCADE,
+        related_name='inbox_notifications',
+    )
+    notification_type = models.CharField(
+        max_length=50,
+        choices=NotificationType.choices,
+        db_index=True,
+    )
+    title = models.CharField(max_length=255)
+    body = models.TextField()
+    data = models.JSONField(default=dict, blank=True)
+    related_object_type = models.CharField(max_length=50, blank=True, default='')
+    related_object_id = models.PositiveIntegerField(null=True, blank=True)
+    is_read = models.BooleanField(default=False, db_index=True)
+    read_at = models.DateTimeField(null=True, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True, db_index=True)
+
+    class Meta:
+        ordering = ['-created_at']
+        indexes = [
+            models.Index(fields=['recipient', 'is_read']),
+            models.Index(fields=['recipient', 'created_at']),
+        ]
+
+    def __str__(self):
+        return f'{self.notification_type} → {self.recipient_id} ({self.id})'
+
+    def mark_read(self):
+        if not self.is_read:
+            self.is_read = True
+            self.read_at = timezone.now()
+            self.save(update_fields=['is_read', 'read_at'])
+        return self
+
 
 class PushNotification(models.Model):
     """Model to track push notifications sent to mobile devices"""
@@ -148,6 +197,7 @@ class NotificationPreference(models.Model):
     new_views_enabled = models.BooleanField(default=True)
     wishlist_updates_enabled = models.BooleanField(default=True)
     system_messages_enabled = models.BooleanField(default=True)
+    chat_messages_enabled = models.BooleanField(default=True)
     
     # General settings
     push_enabled = models.BooleanField(default=True)

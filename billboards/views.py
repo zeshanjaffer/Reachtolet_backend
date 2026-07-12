@@ -1,5 +1,4 @@
 from rest_framework import generics, permissions, status
-from .models import Billboard, Wishlist, OohMediaType
 from .serializers import (
     BillboardSerializer,
     BillboardDetailSerializer,
@@ -33,7 +32,7 @@ from django.utils.decorators import method_decorator
 from django.views.decorators.cache import cache_page
 from django.views.decorators.vary import vary_on_cookie
 from rest_framework.decorators import api_view, permission_classes
-from rest_framework.permissions import IsAuthenticated, IsAdminUser
+from rest_framework.permissions import IsAuthenticated, IsAdminUser, AllowAny, IsAuthenticatedOrReadOnly
 from django.core.paginator import Paginator, EmptyPage
 from django.db.models import Prefetch, Q
 from django.utils import timezone
@@ -41,7 +40,8 @@ from drf_yasg.utils import swagger_auto_schema
 from drf_yasg import openapi
 from .permissions import IsMediaOwner, IsBillboardOwner
 from .media_types_data import CATEGORY_LABELS
-from .media_type_serializers import OohMediaTypePickerSerializer
+from .media_type_serializers import OohMediaTypePickerSerializer, OohMediaTypeSchemaSerializer
+from .models import Billboard, Wishlist, OohMediaType, OohMediaTypeAttribute
 # WebSocket imports removed
 import os
 import uuid
@@ -147,15 +147,21 @@ build_billboard_create_payload = build_billboard_write_payload
 
 class OohMediaTypeListView(APIView):
     """
-    Media type picker for media owners creating billboards.
-    Returns grouped types (adbuq-style) plus a flat selectable list.
+    Media type picker for create-billboard (guest-readable).
+    Returns grouped types (adbuq-style) plus a flat selectable list with attributes.
     """
 
-    permission_classes = [IsMediaOwner]
+    permission_classes = [AllowAny]
 
     def get(self, request):
         types_qs = OohMediaType.objects.filter(is_active=True).order_by('sort_order', 'name')
-        selectable_qs = types_qs.filter(is_selectable=True)
+        selectable_qs = types_qs.filter(is_selectable=True).prefetch_related(
+            Prefetch(
+                'attributes',
+                queryset=OohMediaTypeAttribute.objects.filter(is_active=True).order_by('order', 'id'),
+                to_attr='_prefetched_active_attributes',
+            )
+        )
 
         search = (request.query_params.get('search') or '').strip()
         if search:
@@ -216,6 +222,24 @@ class OohMediaTypeListView(APIView):
         }, status=status.HTTP_200_OK)
 
 
+class OohMediaTypeSchemaView(APIView):
+    """GET /api/billboards/media-types/<id>/schema/ — type + active attributes."""
+
+    permission_classes = [AllowAny]
+
+    def get(self, request, media_type_id):
+        try:
+            media_type = OohMediaType.objects.get(pk=media_type_id, is_active=True)
+        except OohMediaType.DoesNotExist:
+            return action_response('Media type not found', status.HTTP_404_NOT_FOUND)
+
+        return Response({
+            'status_code': status.HTTP_200_OK,
+            'message': 'Media type schema retrieved successfully',
+            'media_type': OohMediaTypeSchemaSerializer(media_type).data,
+        }, status=status.HTTP_200_OK)
+
+
 class BillboardListCreateView(generics.ListCreateAPIView):
     def get_queryset(self):
         # Only mappable billboards: approved, active, valid PostGIS location.
@@ -237,7 +261,7 @@ class BillboardListCreateView(generics.ListCreateAPIView):
             return BillboardPublicSummarySerializer
         return BillboardSerializer
 
-    permission_classes = [IsAuthenticated]
+    permission_classes = [IsAuthenticatedOrReadOnly]
     pagination_class = CustomPagination
     filter_backends = [DjangoFilterBackend, SearchFilter, OrderingFilter]
     filterset_class = BillboardFilter  # Use simple filter
@@ -245,6 +269,11 @@ class BillboardListCreateView(generics.ListCreateAPIView):
     ordering_fields = ['created_at', 'price_range', 'city', 'views']
     ordering = ['-created_at']
     parser_classes = (MultiPartParser, FormParser)  # Add parsers for file uploads
+
+    def get_permissions(self):
+        if self.request.method == 'GET':
+            return [AllowAny()]
+        return [IsAuthenticated()]
 
     def paginate_queryset(self, queryset):
         """
@@ -383,6 +412,13 @@ class BillboardListCreateView(generics.ListCreateAPIView):
             return Response({
                 'detail': 'Only media owners can create billboards. You are registered as an advertiser.'
             }, status=status.HTTP_403_FORBIDDEN)
+
+        preferred = (getattr(request.user, 'preferred_currency', None) or '').strip()
+        if not preferred:
+            return Response(
+                {'detail': 'Set your currency in profile before creating billboards.'},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
         
         # Handle image uploads
         image_urls, upload_error = upload_billboard_images_from_request(request)
@@ -424,6 +460,11 @@ class BillboardAvailabilityView(APIView):
     """Get or set booked dates for a billboard calendar."""
 
     permission_classes = [IsAuthenticated]
+
+    def get_permissions(self):
+        if self.request.method == 'GET':
+            return [AllowAny()]
+        return [IsAuthenticated()]
 
     def get(self, request, billboard_id):
         try:
@@ -489,12 +530,12 @@ class BillboardAvailabilityView(APIView):
 class BillboardPreviewView(generics.RetrieveAPIView):
     """
     Lightweight preview for map pin tap (before full detail screen).
-    Available to all authenticated users for approved+active billboards;
+    Guests and authenticated users see approved+active billboards;
     media owners can also preview their own billboards.
     """
 
     serializer_class = BillboardPreviewSerializer
-    permission_classes = [IsAuthenticated]
+    permission_classes = [AllowAny]
     lookup_url_kwarg = 'billboard_id'
 
     def get_queryset(self):
@@ -520,9 +561,16 @@ class BillboardPreviewView(generics.RetrieveAPIView):
 
 class BillboardDetailView(generics.RetrieveUpdateDestroyAPIView):
     def get_queryset(self):
-        return Billboard.objects.select_related(
+        qs = Billboard.objects.select_related(
             'user', 'approved_by', 'rejected_by', 'media_type',
         )
+        user = self.request.user
+        if self.request.method == 'GET':
+            public_qs = Q(is_active=True, approval_status='approved')
+            if user.is_authenticated and getattr(user, 'user_type', None) == 'media_owner':
+                return qs.filter(public_qs | Q(user=user))
+            return qs.filter(public_qs)
+        return qs
 
     serializer_class = BillboardSerializer
     parser_classes = (MultiPartParser, FormParser, JSONParser)
@@ -544,7 +592,12 @@ class BillboardDetailView(generics.RetrieveUpdateDestroyAPIView):
         else:
             context['wishlist_billboard_ids'] = frozenset()
         return context
-    
+
+    def get_permissions(self):
+        if self.request.method == 'GET':
+            return [AllowAny()]
+        return [IsAuthenticated()]
+
     permission_classes = [IsAuthenticated]
 
     def _check_owner_can_modify(self, request, instance):
@@ -849,11 +902,12 @@ def track_billboard_lead(request, billboard_id):
 
 
 @api_view(['POST'])
-@permission_classes([IsAuthenticated])
+@permission_classes([AllowAny])
 def track_billboard_view(request, billboard_id):
     """
     Queue view tracking. Returns immediately;
     worker handles dedup and F() counter increment.
+    Guests may track views (IP-based dedup when unauthenticated).
     """
     from .tasks import track_billboard_view_task
 

@@ -161,6 +161,8 @@ class PushNotificationService:
                 return False
             elif notification_type == 'system_message' and not preferences.system_messages_enabled:
                 return False
+            elif notification_type == 'new_chat_message' and not preferences.chat_messages_enabled:
+                return False
             # Billboard approval/rejection notifications are always enabled (important updates)
             elif notification_type in ['billboard_approved', 'billboard_rejected']:
                 # These are important notifications, always send if push is enabled
@@ -175,6 +177,14 @@ class PushNotificationService:
     def _create_notification_record(self, user, notification_type, title, body, 
                                   fcm_token, device_type, data=None, content_object=None):
         """Create a notification record in the database"""
+        from django.contrib.contenttypes.models import ContentType
+
+        content_type = None
+        object_id = None
+        if content_object is not None:
+            content_type = ContentType.objects.get_for_model(content_object)
+            object_id = content_object.pk
+
         notification = PushNotification.objects.create(
             recipient=user,
             notification_type=notification_type,
@@ -183,8 +193,8 @@ class PushNotificationService:
             fcm_token=fcm_token,
             device_type=device_type,
             data=data or {},
-            content_type=content_object._meta if content_object else None,
-            object_id=content_object.id if content_object else None
+            content_type=content_type,
+            object_id=object_id,
         )
         return notification
     

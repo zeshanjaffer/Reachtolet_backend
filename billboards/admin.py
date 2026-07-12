@@ -1,6 +1,16 @@
 from django.contrib import admin
 from django.utils import timezone
-from .models import Billboard, Wishlist, Lead, View, OohMediaType
+from .models import Billboard, Wishlist, Lead, View, OohMediaType, OohMediaTypeAttribute
+
+
+class OohMediaTypeAttributeInline(admin.TabularInline):
+    model = OohMediaTypeAttribute
+    extra = 0
+    fields = (
+        'key', 'label', 'field_type', 'required', 'options',
+        'validation', 'order', 'help_text', 'is_active',
+    )
+    ordering = ('order', 'id')
 
 
 @admin.register(OohMediaType)
@@ -13,6 +23,18 @@ class OohMediaTypeAdmin(admin.ModelAdmin):
     search_fields = ('name', 'slug')
     ordering = ('sort_order', 'name')
     prepopulated_fields = {'slug': ('name',)}
+    inlines = [OohMediaTypeAttributeInline]
+
+
+@admin.register(OohMediaTypeAttribute)
+class OohMediaTypeAttributeAdmin(admin.ModelAdmin):
+    list_display = (
+        'id', 'media_type', 'key', 'label', 'field_type',
+        'required', 'order', 'is_active',
+    )
+    list_filter = ('field_type', 'required', 'is_active', 'media_type__category')
+    search_fields = ('key', 'label', 'media_type__name', 'media_type__slug')
+    ordering = ('media_type', 'order', 'id')
 
 
 @admin.register(Billboard)

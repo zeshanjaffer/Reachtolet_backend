@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import math
 import os
 import uuid
 
@@ -78,6 +79,11 @@ def get_or_create_room(billboard_id, advertiser_user):
     return room, created
 
 
+def create_room_for_billboard(billboard_id, user):
+    """Alias for get_or_create_room — avoids collision with the socket event name."""
+    return get_or_create_room(billboard_id, user)
+
+
 def get_room_by_billboard(billboard_id, user):
     """Return existing room for this user + billboard, or None."""
     try:
@@ -103,9 +109,85 @@ def list_rooms_for_user(user):
     return ChatRoom.objects.none()
 
 
+def _clamp_page(page, page_size, default_size):
+    try:
+        page = int(page or 1)
+    except (TypeError, ValueError):
+        page = 1
+    try:
+        page_size = int(page_size or default_size)
+    except (TypeError, ValueError):
+        page_size = default_size
+    return max(1, page), max(1, min(page_size, 100))
+
+
+def paginate_rooms(user, page=1, page_size=20):
+    """Paginated inbox for socket get_inbox / chat_sync."""
+    page, page_size = _clamp_page(page, page_size, 20)
+    qs = (
+        list_rooms_for_user(user)
+        .select_related('billboard', 'advertiser', 'media_owner')
+        .order_by('-updated_at')
+    )
+    total = qs.count()
+    total_pages = max(1, math.ceil(total / page_size)) if total else 1
+    start = (page - 1) * page_size
+    rooms = list(qs[start:start + page_size])
+    return {
+        'count': total,
+        'total_pages': total_pages,
+        'current_page': page,
+        'page_size': page_size,
+        'results': [serialize_room(room, user) for room in rooms],
+    }
+
+
+def paginate_messages(room, page=1, page_size=30):
+    """
+    Paginated messages for socket get_messages.
+    Page 1 is the newest page (like REST); results within the page are
+    chronological ascending (oldest first) as Flutter expects.
+    """
+    page, page_size = _clamp_page(page, page_size, 30)
+    qs = (
+        ChatMessage.objects.filter(room=room)
+        .select_related('sender')
+        .prefetch_related('attachments')
+        .order_by('-created_at')
+    )
+    total = qs.count()
+    total_pages = max(1, math.ceil(total / page_size)) if total else 1
+    start = (page - 1) * page_size
+    page_items = list(qs[start:start + page_size])
+    page_items.reverse()
+    return {
+        'count': total,
+        'total_pages': total_pages,
+        'current_page': page,
+        'page_size': page_size,
+        'results': [serialize_message(message) for message in page_items],
+    }
+
+
 def _ensure_participants(room):
     for participant_user in (room.advertiser, room.media_owner):
         ChatRoomParticipant.objects.get_or_create(room=room, user=participant_user)
+
+
+def _absolute_file_url(file_url, request=None):
+    if not file_url:
+        return file_url
+    if file_url.startswith('http://') or file_url.startswith('https://'):
+        return file_url
+    if request is not None:
+        return request.build_absolute_uri(file_url)
+    base = getattr(settings, 'PUBLIC_BASE_URL', '') or ''
+    base = base.rstrip('/')
+    if not base:
+        return file_url
+    if not file_url.startswith('/'):
+        file_url = f'/{file_url}'
+    return f'{base}{file_url}'
 
 
 def _save_uploaded_file(file_obj, request=None):
@@ -119,11 +201,10 @@ def _save_uploaded_file(file_obj, request=None):
 
     ext = os.path.splitext(file_obj.name or '')[1] or ''
     path = default_storage.save(f'chat_attachments/{uuid.uuid4().hex}{ext}', file_obj)
-    url = path
-    if request:
-        url = request.build_absolute_uri(f'{settings.MEDIA_URL}{path}')
-    else:
-        url = f'{settings.MEDIA_URL.rstrip("/")}/{path}'
+    media_path = f'{settings.MEDIA_URL.rstrip("/")}/{path}'
+    if not media_path.startswith('/'):
+        media_path = f'/{media_path}'
+    url = _absolute_file_url(media_path, request=request)
     return path, url, file_obj.name or 'file', content_type, size
 
 
@@ -169,6 +250,38 @@ def create_message(room, sender, body='', files=None, request=None):
     return message, attachment_rows
 
 
+def notify_recipient_of_chat_message(room, sender, message):
+    """Create in-app inbox (+ optional FCM) for the other participant."""
+    other = room.other_user(sender)
+    if not other:
+        return None
+
+    from notifications.models import NotificationType
+    from notifications.inbox_service import create_inbox_notification
+
+    body = (message.body or '').strip()
+    if not body:
+        body = 'Sent an attachment'
+    else:
+        body = body[:160]
+
+    sender_name = (getattr(sender, 'full_name', None) or '').strip() or getattr(sender, 'email', 'Someone')
+    return create_inbox_notification(
+        user=other,
+        notification_type=NotificationType.NEW_CHAT_MESSAGE,
+        title=f'New message from {sender_name}',
+        body=body,
+        data={
+            'room_id': room.id,
+            'message_id': message.id,
+            'billboard_id': room.billboard_id,
+            'sender_id': sender.id,
+        },
+        related_object_type='chatmessage',
+        related_object_id=message.id,
+    )
+
+
 def mark_message_delivered(message, recipient):
     if message.sender_id == recipient.id:
         return message
@@ -206,9 +319,7 @@ def mark_messages_seen(room, user, up_to_message_id):
 def serialize_message(message, request=None):
     attachments = []
     for att in message.attachments.all():
-        file_url = att.file.url
-        if request and not file_url.startswith('http'):
-            file_url = request.build_absolute_uri(file_url)
+        file_url = _absolute_file_url(att.file.url, request=request)
         attachments.append({
             'id': att.id,
             'original_name': att.original_name,

@@ -1,8 +1,22 @@
 from django.contrib import admin
 from .models import (
-    PushNotification, DeviceToken, NotificationPreference, 
-    NotificationTemplate, NotificationType
+    PushNotification, DeviceToken, NotificationPreference,
+    NotificationTemplate, NotificationType, UserNotification
 )
+
+@admin.register(UserNotification)
+class UserNotificationAdmin(admin.ModelAdmin):
+    list_display = [
+        'id', 'recipient', 'notification_type', 'title',
+        'is_read', 'created_at',
+    ]
+    list_filter = ['notification_type', 'is_read', 'created_at']
+    search_fields = ['recipient__email', 'title', 'body']
+    readonly_fields = ['id', 'created_at', 'read_at']
+    date_hierarchy = 'created_at'
+
+    def get_queryset(self, request):
+        return super().get_queryset(request).select_related('recipient')
 
 @admin.register(PushNotification)
 class PushNotificationAdmin(admin.ModelAdmin):
@@ -37,11 +51,11 @@ class DeviceTokenAdmin(admin.ModelAdmin):
 class NotificationPreferenceAdmin(admin.ModelAdmin):
     list_display = [
         'user', 'push_enabled', 'new_leads_enabled', 'new_views_enabled',
-        'wishlist_updates_enabled', 'system_messages_enabled'
+        'wishlist_updates_enabled', 'system_messages_enabled', 'chat_messages_enabled',
     ]
     list_filter = [
         'push_enabled', 'new_leads_enabled', 'new_views_enabled',
-        'wishlist_updates_enabled', 'system_messages_enabled'
+        'wishlist_updates_enabled', 'system_messages_enabled', 'chat_messages_enabled',
     ]
     search_fields = ['user__email', 'user__username']
     readonly_fields = ['created_at', 'updated_at']

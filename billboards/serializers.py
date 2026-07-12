@@ -1,7 +1,26 @@
 from rest_framework import serializers
 from .availability_utils import build_availability_payload, normalize_booked_dates, get_availability_status
-from .specifications_utils import normalize_specifications
+from .specifications_utils import (
+    normalize_specifications,
+    validate_specifications_against_attributes,
+)
 from .models import Billboard, Wishlist, OohMediaType
+from .media_type_serializers import OohMediaTypeAttributeSerializer
+
+
+def _media_type_detail_payload(media_type):
+    """Flutter MediaTypeDetail shape including active attributes[]."""
+    if media_type is None:
+        return None
+    attrs = media_type.attributes.filter(is_active=True).order_by('order', 'id')
+    return {
+        'id': media_type.id,
+        'name': media_type.name,
+        'slug': media_type.slug,
+        'category': media_type.category,
+        'is_digital': media_type.is_digital,
+        'attributes': OohMediaTypeAttributeSerializer(attrs, many=True).data,
+    }
 
 
 def _wishlist_ids_for_user(request):
@@ -61,7 +80,7 @@ class BillboardPreviewSerializer(serializers.ModelSerializer):
         period = (obj.exposure_time or '').strip() or 'per month'
         return {
             'amount': obj.price_range,
-            'currency': 'PKR',
+            'currency': obj.currency or 'PKR',
             'period': period,
         }
 
@@ -115,7 +134,10 @@ class SpecificationsJSONField(serializers.JSONField):
         try:
             return normalize_specifications(data)
         except ValueError as exc:
-            raise serializers.ValidationError(str(exc)) from exc
+            message = str(exc)
+            if message == '_unknown':
+                raise serializers.ValidationError({'_unknown': 'currency is not allowed in specifications'}) from exc
+            raise serializers.ValidationError(message) from exc
 
 
 class BillboardSerializer(serializers.ModelSerializer):
@@ -144,7 +166,7 @@ class BillboardSerializer(serializers.ModelSerializer):
         fields = [
             'id', 'city', 'description', 'number_of_boards', 'average_daily_views',
             'traffic_direction', 'road_position', 'road_name', 'exposure_time',
-            'price_range', 'display_height', 'display_width', 'advertiser_phone',
+            'price_range', 'currency', 'display_height', 'display_width', 'advertiser_phone',
             'advertiser_whatsapp', 'company_name', 'company_website',
             'ooh_media_type', 'media_type_id', 'media_type_detail', 'ooh_media_id', 'type',
             'images', 'specifications',
@@ -158,7 +180,7 @@ class BillboardSerializer(serializers.ModelSerializer):
             'is_in_wishlist'
         ]
         read_only_fields = ('user', 'views', 'leads', 'created_at', 'is_active', 'user_name',
-                           'ooh_media_type', 'media_type_detail',
+                           'currency', 'ooh_media_type', 'media_type_detail',
                            'approved_at', 'rejected_at', 'approved_by', 'rejected_by',
                            'approval_status_display', 'approved_by_username', 'rejected_by_username',
                            'is_in_wishlist', 'availability')
@@ -166,14 +188,7 @@ class BillboardSerializer(serializers.ModelSerializer):
     def get_media_type_detail(self, obj):
         if not obj.media_type_id:
             return None
-        mt = obj.media_type
-        return {
-            'id': mt.id,
-            'name': mt.name,
-            'slug': mt.slug,
-            'category': mt.category,
-            'is_digital': mt.is_digital,
-        }
+        return _media_type_detail_payload(obj.media_type)
 
     def validate(self, attrs):
         media_type = attrs.get('media_type')
@@ -186,6 +201,29 @@ class BillboardSerializer(serializers.ModelSerializer):
             raise serializers.ValidationError({
                 'media_type_id': f'"{media_type.name}" is a group header, not a selectable media type.',
             })
+
+        # Resolve media type for attribute-based specifications validation
+        resolved_type = media_type
+        if resolved_type is None and ooh_media_type:
+            resolved_type = OohMediaType.objects.filter(
+                name__iexact=str(ooh_media_type).strip(), is_active=True
+            ).first()
+        if resolved_type is None and self.instance is not None:
+            resolved_type = self.instance.media_type
+
+        if 'specifications' in attrs or (
+            self.instance is None and resolved_type is not None
+        ):
+            specs = attrs.get('specifications')
+            if specs is None and self.instance is None:
+                specs = {}
+            if specs is not None and resolved_type is not None:
+                spec_errors = validate_specifications_against_attributes(
+                    specs, resolved_type
+                )
+                if spec_errors:
+                    raise serializers.ValidationError({'specifications': spec_errors})
+
         return attrs
 
     def create(self, validated_data):
@@ -194,7 +232,14 @@ class BillboardSerializer(serializers.ModelSerializer):
             mt = OohMediaType.objects.filter(name__iexact=name, is_active=True).first()
             if mt:
                 validated_data['media_type'] = mt
-        validated_data['user'] = self.context['request'].user
+        user = self.context['request'].user
+        preferred = (getattr(user, 'preferred_currency', None) or '').strip().upper()
+        if not preferred:
+            raise serializers.ValidationError({
+                'detail': 'Set your currency in profile before creating billboards.',
+            })
+        validated_data['user'] = user
+        validated_data['currency'] = preferred
         return super().create(validated_data)
 
     def update(self, instance, validated_data):
@@ -256,7 +301,7 @@ class BillboardListSerializer(serializers.ModelSerializer):
         fields = [
             'id', 'city', 'description', 'number_of_boards', 'average_daily_views',
             'traffic_direction', 'road_position', 'road_name', 'exposure_time',
-            'price_range', 'display_height', 'display_width', 'advertiser_phone',
+            'price_range', 'currency', 'display_height', 'display_width', 'advertiser_phone',
             'advertiser_whatsapp', 'company_name', 'company_website',
             'ooh_media_type', 'media_type_detail', 'ooh_media_id', 'type', 'images', 'specifications',
             'availability',
@@ -269,6 +314,7 @@ class BillboardListSerializer(serializers.ModelSerializer):
             'is_in_wishlist'
         ]
         read_only_fields = ('user', 'views', 'leads', 'created_at', 'is_active', 'user_name',
+                           'currency',
                            'approved_at', 'rejected_at', 'approved_by', 'rejected_by',
                            'approval_status_display', 'approved_by_username', 'rejected_by_username',
                            'is_in_wishlist', 'availability')
@@ -276,15 +322,8 @@ class BillboardListSerializer(serializers.ModelSerializer):
     def get_media_type_detail(self, obj):
         if not obj.media_type_id:
             return None
-        mt = obj.media_type
-        return {
-            'id': mt.id,
-            'name': mt.name,
-            'slug': mt.slug,
-            'category': mt.category,
-            'is_digital': mt.is_digital,
-        }
-    
+        return _media_type_detail_payload(obj.media_type)
+
     def get_availability(self, obj):
         payload = build_availability_payload(obj)
         return {
@@ -359,7 +398,7 @@ class BillboardOwnerTileSerializer(serializers.ModelSerializer):
         period = (obj.exposure_time or '').strip() or 'per month'
         return {
             'amount': obj.price_range,
-            'currency': 'PKR',
+            'currency': obj.currency or 'PKR',
             'period': period,
         }
 

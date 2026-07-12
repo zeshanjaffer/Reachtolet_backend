@@ -2,11 +2,12 @@ from rest_framework import generics, permissions, status
 from rest_framework.views import APIView
 from rest_framework.response import Response
 from rest_framework.decorators import api_view, permission_classes
+from rest_framework.pagination import PageNumberPagination
 from django.shortcuts import get_object_or_404
 from django.contrib.auth import get_user_model
 from .models import (
-    PushNotification, DeviceToken, NotificationPreference, 
-    NotificationTemplate, NotificationType
+    PushNotification, DeviceToken, NotificationPreference,
+    NotificationTemplate, NotificationType, UserNotification
 )
 from .serializers import (
     DeviceTokenSerializer, NotificationPreferenceSerializer,
@@ -14,6 +15,12 @@ from .serializers import (
     SendNotificationSerializer
 )
 from .services import push_service
+from .inbox_service import (
+    unread_count_for,
+    serialize_inbox_notification,
+    mark_notification_read,
+    mark_all_read,
+)
 from core.pagination import CustomPagination
 from core.responses import action_response
 import logging
@@ -225,3 +232,111 @@ def test_notification(request):
     except Exception as e:
         logger.error(f"Error sending test notification: {str(e)}")
         return action_response('Failed to send test notification', status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+
+# ── In-app notification inbox ───────────────────────────────────────────────
+
+class InboxUnreadCountView(APIView):
+    permission_classes = [permissions.IsAuthenticated]
+
+    def get(self, request):
+        return Response({
+            'status_code': status.HTTP_200_OK,
+            'message': 'Unread count retrieved successfully',
+            'unread_count': unread_count_for(request.user),
+        }, status=status.HTTP_200_OK)
+
+
+class InboxListView(APIView):
+    permission_classes = [permissions.IsAuthenticated]
+
+    def get(self, request):
+        qs = UserNotification.objects.filter(recipient=request.user)
+
+        is_read = request.query_params.get('is_read')
+        if is_read is not None:
+            val = str(is_read).strip().lower()
+            if val in ('true', '1', 'yes'):
+                qs = qs.filter(is_read=True)
+            elif val in ('false', '0', 'no'):
+                qs = qs.filter(is_read=False)
+
+        notification_type = request.query_params.get('notification_type')
+        if notification_type:
+            qs = qs.filter(notification_type=notification_type)
+
+        qs = qs.order_by('-created_at')
+
+        try:
+            page_size = int(request.query_params.get('page_size', 20))
+        except (TypeError, ValueError):
+            page_size = 20
+        page_size = max(1, min(page_size, 100))
+
+        paginator = PageNumberPagination()
+        paginator.page_size = page_size
+        page = paginator.paginate_queryset(qs, request)
+
+        results = [serialize_inbox_notification(n) for n in page]
+        return Response({
+            'status_code': status.HTTP_200_OK,
+            'message': 'Notifications retrieved successfully',
+            'links': {
+                'next': paginator.get_next_link(),
+                'previous': paginator.get_previous_link(),
+            },
+            'count': paginator.page.paginator.count,
+            'total_pages': paginator.page.paginator.num_pages,
+            'current_page': paginator.page.number,
+            'results': results,
+            'unread_count': unread_count_for(request.user),
+        }, status=status.HTTP_200_OK)
+
+
+class InboxDetailView(APIView):
+    permission_classes = [permissions.IsAuthenticated]
+
+    def get(self, request, notification_id):
+        notification = get_object_or_404(
+            UserNotification, id=notification_id, recipient=request.user
+        )
+        mark_read_param = request.query_params.get('mark_read', 'true')
+        if str(mark_read_param).strip().lower() in ('true', '1', 'yes', ''):
+            mark_notification_read(notification)
+            notification.refresh_from_db()
+
+        return Response({
+            'status_code': status.HTTP_200_OK,
+            'message': 'Notification retrieved successfully',
+            'notification': serialize_inbox_notification(notification),
+        }, status=status.HTTP_200_OK)
+
+
+class InboxMarkReadView(APIView):
+    permission_classes = [permissions.IsAuthenticated]
+
+    def post(self, request, notification_id):
+        notification = get_object_or_404(
+            UserNotification, id=notification_id, recipient=request.user
+        )
+        mark_notification_read(notification)
+        notification.refresh_from_db()
+        return Response({
+            'status_code': status.HTTP_200_OK,
+            'message': 'Notification marked as read',
+            'notification': serialize_inbox_notification(notification),
+            'unread_count': unread_count_for(request.user),
+        }, status=status.HTTP_200_OK)
+
+
+class InboxMarkAllReadView(APIView):
+    permission_classes = [permissions.IsAuthenticated]
+
+    def post(self, request):
+        marked_count = mark_all_read(request.user)
+        return Response({
+            'status_code': status.HTTP_200_OK,
+            'message': 'All notifications marked as read',
+            'marked_count': marked_count,
+            'unread_count': unread_count_for(request.user),
+        }, status=status.HTTP_200_OK)

@@ -8,7 +8,7 @@ from django.db import transaction
 from django.db.models import F
 
 from notifications.models import NotificationType
-from notifications.services import push_service
+from notifications.inbox_service import create_inbox_notification
 
 from .models import Billboard, Lead, View
 
@@ -32,7 +32,7 @@ def _send_lead_notification(billboard):
     if not billboard.user_id:
         return
     try:
-        push_service.send_notification(
+        create_inbox_notification(
             user=billboard.user,
             notification_type=NotificationType.NEW_LEAD,
             title='New Lead! 🎉',
@@ -52,7 +52,7 @@ def _send_view_milestone_notification(billboard, view_count):
     if not billboard.user_id or view_count <= 0 or view_count % 10 != 0:
         return
     try:
-        push_service.send_notification(
+        create_inbox_notification(
             user=billboard.user,
             notification_type=NotificationType.NEW_VIEW,
             title='Views Milestone! 👀',
