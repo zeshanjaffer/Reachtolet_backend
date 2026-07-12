@@ -1,5 +1,26 @@
 """Helpers for idempotent migrations against drifted production DBs."""
 
+from django.db import migrations
+
+
+class RunPythonToState(migrations.RunPython):
+    """
+    Like RunPython, but passes to_state.apps.
+
+    Required when used inside SeparateDatabaseAndState so CreateModel /
+    AddField from state_operations are visible to apps.get_model().
+    """
+
+    def database_forwards(self, app_label, schema_editor, from_state, to_state):
+        to_state.clear_delayed_apps_cache()
+        if self.code is not None:
+            self.code(to_state.apps, schema_editor)
+
+    def database_backwards(self, app_label, schema_editor, from_state, to_state):
+        to_state.clear_delayed_apps_cache()
+        if self.reverse_code is not None:
+            self.reverse_code(to_state.apps, schema_editor)
+
 
 def table_exists(schema_editor, table_name: str) -> bool:
     with schema_editor.connection.cursor() as cursor:

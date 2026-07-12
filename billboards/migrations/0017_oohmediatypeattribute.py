@@ -4,7 +4,7 @@
 import django.db.models.deletion
 from django.db import migrations, models
 
-from core.migration_helpers import table_exists
+from core.migration_helpers import RunPythonToState, table_exists
 
 
 def create_ooh_media_type_attribute_if_missing(apps, schema_editor):
@@ -70,7 +70,7 @@ class Migration(migrations.Migration):
                 ),
             ],
             database_operations=[
-                migrations.RunPython(
+                RunPythonToState(
                     create_ooh_media_type_attribute_if_missing,
                     delete_ooh_media_type_attribute_if_present,
                 ),

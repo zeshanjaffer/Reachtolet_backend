@@ -1,42 +1,8 @@
 # Generated manually for bookings app (V1)
-# Idempotent CreateModel for drifted DBs.
 
 import django.db.models.deletion
 from django.conf import settings
 from django.db import migrations, models
-
-from core.migration_helpers import index_exists, table_exists
-
-
-def create_bookings_schema_if_missing(apps, schema_editor):
-    booking_table = 'bookings_booking'
-    if not table_exists(schema_editor, booking_table):
-        Booking = apps.get_model('bookings', 'Booking')
-        schema_editor.create_model(Booking)
-
-    if not table_exists(schema_editor, 'bookings_bookingcontent'):
-        BookingContent = apps.get_model('bookings', 'BookingContent')
-        schema_editor.create_model(BookingContent)
-
-    if not table_exists(schema_editor, 'bookings_payment'):
-        Payment = apps.get_model('bookings', 'Payment')
-        schema_editor.create_model(Payment)
-
-    for index_name, columns_sql in (
-        ('bookings_bo_billboa_7f0a1c_idx', '(billboard_id, status, start_date, end_date)'),
-        ('bookings_bo_adverti_1a2b3c_idx', '(advertiser_id, status)'),
-        ('bookings_bo_media_o_4d5e6f_idx', '(media_owner_id, status)'),
-    ):
-        if index_exists(schema_editor, index_name):
-            continue
-        with schema_editor.connection.cursor() as cursor:
-            cursor.execute(
-                f'CREATE INDEX {index_name} ON {booking_table} {columns_sql}'
-            )
-
-
-def noop_reverse(apps, schema_editor):
-    pass
 
 
 class Migration(migrations.Migration):
@@ -49,144 +15,137 @@ class Migration(migrations.Migration):
     ]
 
     operations = [
-        migrations.SeparateDatabaseAndState(
-            state_operations=[
-                migrations.CreateModel(
-                    name='Booking',
-                    fields=[
-                        ('id', models.BigAutoField(auto_created=True, primary_key=True, serialize=False, verbose_name='ID')),
-                        ('start_date', models.DateField(db_index=True)),
-                        ('end_date', models.DateField(db_index=True)),
-                        ('status', models.CharField(
-                            choices=[
-                                ('pending', 'Pending'),
-                                ('accepted', 'Accepted'),
-                                ('paid', 'Paid'),
-                                ('confirmed', 'Confirmed'),
-                                ('live', 'Live'),
-                                ('completed', 'Completed'),
-                                ('rejected', 'Rejected'),
-                                ('cancelled', 'Cancelled'),
-                            ],
-                            db_index=True,
-                            default='pending',
-                            max_length=20,
-                        )),
-                        ('total_price', models.DecimalField(blank=True, decimal_places=2, max_digits=12, null=True)),
-                        ('currency', models.CharField(blank=True, default='', max_length=3)),
-                        ('advertiser_message', models.TextField(blank=True, default='')),
-                        ('rejection_reason', models.TextField(blank=True, default='')),
-                        ('owner_note', models.TextField(blank=True, default='')),
-                        ('expires_at', models.DateTimeField(blank=True, null=True)),
-                        ('created_at', models.DateTimeField(auto_now_add=True, db_index=True)),
-                        ('updated_at', models.DateTimeField(auto_now=True)),
-                        ('advertiser', models.ForeignKey(
-                            on_delete=django.db.models.deletion.CASCADE,
-                            related_name='advertiser_bookings',
-                            to=settings.AUTH_USER_MODEL,
-                        )),
-                        ('billboard', models.ForeignKey(
-                            on_delete=django.db.models.deletion.CASCADE,
-                            related_name='bookings',
-                            to='billboards.billboard',
-                        )),
-                        ('media_owner', models.ForeignKey(
-                            on_delete=django.db.models.deletion.CASCADE,
-                            related_name='owner_bookings',
-                            to=settings.AUTH_USER_MODEL,
-                        )),
+        migrations.CreateModel(
+            name='Booking',
+            fields=[
+                ('id', models.BigAutoField(auto_created=True, primary_key=True, serialize=False, verbose_name='ID')),
+                ('start_date', models.DateField(db_index=True)),
+                ('end_date', models.DateField(db_index=True)),
+                ('status', models.CharField(
+                    choices=[
+                        ('pending', 'Pending'),
+                        ('accepted', 'Accepted'),
+                        ('paid', 'Paid'),
+                        ('confirmed', 'Confirmed'),
+                        ('live', 'Live'),
+                        ('completed', 'Completed'),
+                        ('rejected', 'Rejected'),
+                        ('cancelled', 'Cancelled'),
                     ],
-                    options={
-                        'ordering': ['-created_at'],
-                    },
-                ),
-                migrations.CreateModel(
-                    name='BookingContent',
-                    fields=[
-                        ('id', models.BigAutoField(auto_created=True, primary_key=True, serialize=False, verbose_name='ID')),
-                        ('content_type', models.CharField(
-                            choices=[('digital', 'Digital'), ('static', 'Static / physical')],
-                            max_length=20,
-                        )),
-                        ('status', models.CharField(
-                            choices=[
-                                ('awaiting_input', 'Awaiting input'),
-                                ('submitted', 'Submitted'),
-                                ('owner_approved', 'Owner approved'),
-                                ('owner_rejected', 'Owner rejected'),
-                            ],
-                            db_index=True,
-                            default='awaiting_input',
-                            max_length=20,
-                        )),
-                        ('video_url', models.URLField(blank=True, default='', max_length=500)),
-                        ('media_file', models.FileField(blank=True, null=True, upload_to='booking_content/%Y/%m/')),
-                        ('slot_daypart', models.CharField(blank=True, default='', max_length=100)),
-                        ('duration_seconds', models.PositiveIntegerField(blank=True, null=True)),
-                        ('digital_notes', models.TextField(blank=True, default='')),
-                        ('install_notes', models.TextField(blank=True, default='')),
-                        ('install_confirmed_by_owner', models.BooleanField(default=False)),
-                        ('external_link', models.URLField(blank=True, default='', max_length=500)),
-                        ('owner_feedback', models.TextField(blank=True, default='')),
-                        ('submitted_at', models.DateTimeField(blank=True, null=True)),
-                        ('reviewed_at', models.DateTimeField(blank=True, null=True)),
-                        ('created_at', models.DateTimeField(auto_now_add=True)),
-                        ('updated_at', models.DateTimeField(auto_now=True)),
-                        ('booking', models.OneToOneField(
-                            on_delete=django.db.models.deletion.CASCADE,
-                            related_name='content',
-                            to='bookings.booking',
-                        )),
-                    ],
-                    options={
-                        'verbose_name': 'Booking content',
-                        'verbose_name_plural': 'Booking contents',
-                    },
-                ),
-                migrations.CreateModel(
-                    name='Payment',
-                    fields=[
-                        ('id', models.BigAutoField(auto_created=True, primary_key=True, serialize=False, verbose_name='ID')),
-                        ('amount', models.DecimalField(blank=True, decimal_places=2, max_digits=12, null=True)),
-                        ('currency', models.CharField(blank=True, default='', max_length=3)),
-                        ('status', models.CharField(
-                            choices=[
-                                ('skipped', 'Skipped (V1)'),
-                                ('held', 'Held'),
-                                ('captured', 'Captured'),
-                                ('released', 'Released to owner'),
-                                ('refunded', 'Refunded'),
-                                ('failed', 'Failed'),
-                            ],
-                            db_index=True,
-                            default='skipped',
-                            max_length=20,
-                        )),
-                        ('gateway_ref', models.CharField(blank=True, default='', max_length=255)),
-                        ('created_at', models.DateTimeField(auto_now_add=True)),
-                        ('updated_at', models.DateTimeField(auto_now=True)),
-                        ('booking', models.OneToOneField(
-                            on_delete=django.db.models.deletion.CASCADE,
-                            related_name='payment',
-                            to='bookings.booking',
-                        )),
-                    ],
-                ),
-                migrations.AddIndex(
-                    model_name='booking',
-                    index=models.Index(fields=['billboard', 'status', 'start_date', 'end_date'], name='bookings_bo_billboa_7f0a1c_idx'),
-                ),
-                migrations.AddIndex(
-                    model_name='booking',
-                    index=models.Index(fields=['advertiser', 'status'], name='bookings_bo_adverti_1a2b3c_idx'),
-                ),
-                migrations.AddIndex(
-                    model_name='booking',
-                    index=models.Index(fields=['media_owner', 'status'], name='bookings_bo_media_o_4d5e6f_idx'),
-                ),
+                    db_index=True,
+                    default='pending',
+                    max_length=20,
+                )),
+                ('total_price', models.DecimalField(blank=True, decimal_places=2, max_digits=12, null=True)),
+                ('currency', models.CharField(blank=True, default='', max_length=3)),
+                ('advertiser_message', models.TextField(blank=True, default='')),
+                ('rejection_reason', models.TextField(blank=True, default='')),
+                ('owner_note', models.TextField(blank=True, default='')),
+                ('expires_at', models.DateTimeField(blank=True, null=True)),
+                ('created_at', models.DateTimeField(auto_now_add=True, db_index=True)),
+                ('updated_at', models.DateTimeField(auto_now=True)),
+                ('advertiser', models.ForeignKey(
+                    on_delete=django.db.models.deletion.CASCADE,
+                    related_name='advertiser_bookings',
+                    to=settings.AUTH_USER_MODEL,
+                )),
+                ('billboard', models.ForeignKey(
+                    on_delete=django.db.models.deletion.CASCADE,
+                    related_name='bookings',
+                    to='billboards.billboard',
+                )),
+                ('media_owner', models.ForeignKey(
+                    on_delete=django.db.models.deletion.CASCADE,
+                    related_name='owner_bookings',
+                    to=settings.AUTH_USER_MODEL,
+                )),
             ],
-            database_operations=[
-                migrations.RunPython(create_bookings_schema_if_missing, noop_reverse),
+            options={
+                'ordering': ['-created_at'],
+            },
+        ),
+        migrations.CreateModel(
+            name='BookingContent',
+            fields=[
+                ('id', models.BigAutoField(auto_created=True, primary_key=True, serialize=False, verbose_name='ID')),
+                ('content_type', models.CharField(
+                    choices=[('digital', 'Digital'), ('static', 'Static / physical')],
+                    max_length=20,
+                )),
+                ('status', models.CharField(
+                    choices=[
+                        ('awaiting_input', 'Awaiting input'),
+                        ('submitted', 'Submitted'),
+                        ('owner_approved', 'Owner approved'),
+                        ('owner_rejected', 'Owner rejected'),
+                    ],
+                    db_index=True,
+                    default='awaiting_input',
+                    max_length=20,
+                )),
+                ('video_url', models.URLField(blank=True, default='', max_length=500)),
+                ('media_file', models.FileField(blank=True, null=True, upload_to='booking_content/%Y/%m/')),
+                ('slot_daypart', models.CharField(blank=True, default='', max_length=100)),
+                ('duration_seconds', models.PositiveIntegerField(blank=True, null=True)),
+                ('digital_notes', models.TextField(blank=True, default='')),
+                ('install_notes', models.TextField(blank=True, default='')),
+                ('install_confirmed_by_owner', models.BooleanField(default=False)),
+                ('external_link', models.URLField(blank=True, default='', max_length=500)),
+                ('owner_feedback', models.TextField(blank=True, default='')),
+                ('submitted_at', models.DateTimeField(blank=True, null=True)),
+                ('reviewed_at', models.DateTimeField(blank=True, null=True)),
+                ('created_at', models.DateTimeField(auto_now_add=True)),
+                ('updated_at', models.DateTimeField(auto_now=True)),
+                ('booking', models.OneToOneField(
+                    on_delete=django.db.models.deletion.CASCADE,
+                    related_name='content',
+                    to='bookings.booking',
+                )),
             ],
+            options={
+                'verbose_name': 'Booking content',
+                'verbose_name_plural': 'Booking contents',
+            },
+        ),
+        migrations.CreateModel(
+            name='Payment',
+            fields=[
+                ('id', models.BigAutoField(auto_created=True, primary_key=True, serialize=False, verbose_name='ID')),
+                ('amount', models.DecimalField(blank=True, decimal_places=2, max_digits=12, null=True)),
+                ('currency', models.CharField(blank=True, default='', max_length=3)),
+                ('status', models.CharField(
+                    choices=[
+                        ('skipped', 'Skipped (V1)'),
+                        ('held', 'Held'),
+                        ('captured', 'Captured'),
+                        ('released', 'Released to owner'),
+                        ('refunded', 'Refunded'),
+                        ('failed', 'Failed'),
+                    ],
+                    db_index=True,
+                    default='skipped',
+                    max_length=20,
+                )),
+                ('gateway_ref', models.CharField(blank=True, default='', max_length=255)),
+                ('created_at', models.DateTimeField(auto_now_add=True)),
+                ('updated_at', models.DateTimeField(auto_now=True)),
+                ('booking', models.OneToOneField(
+                    on_delete=django.db.models.deletion.CASCADE,
+                    related_name='payment',
+                    to='bookings.booking',
+                )),
+            ],
+        ),
+        migrations.AddIndex(
+            model_name='booking',
+            index=models.Index(fields=['billboard', 'status', 'start_date', 'end_date'], name='bookings_bo_billboa_7f0a1c_idx'),
+        ),
+        migrations.AddIndex(
+            model_name='booking',
+            index=models.Index(fields=['advertiser', 'status'], name='bookings_bo_adverti_1a2b3c_idx'),
+        ),
+        migrations.AddIndex(
+            model_name='booking',
+            index=models.Index(fields=['media_owner', 'status'], name='bookings_bo_media_o_4d5e6f_idx'),
         ),
     ]

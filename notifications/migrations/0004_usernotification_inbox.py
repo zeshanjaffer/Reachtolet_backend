@@ -7,7 +7,7 @@ from django.conf import settings
 from django.db import migrations, models
 import django.db.models.deletion
 
-from core.migration_helpers import column_exists, index_exists, table_exists
+from core.migration_helpers import RunPythonToState, column_exists, index_exists, table_exists
 
 
 NOTIFICATION_TYPE_CHOICES = [
@@ -129,7 +129,7 @@ class Migration(migrations.Migration):
                 ),
             ],
             database_operations=[
-                migrations.RunPython(apply_inbox_schema, noop_reverse),
+                RunPythonToState(apply_inbox_schema, noop_reverse),
             ],
         ),
     ]

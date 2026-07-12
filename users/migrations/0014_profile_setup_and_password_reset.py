@@ -4,7 +4,7 @@
 import django.core.validators
 from django.db import migrations, models
 
-from core.migration_helpers import column_exists, table_exists
+from core.migration_helpers import RunPythonToState, column_exists, table_exists
 
 
 PROFILE_COLUMNS = [
@@ -187,7 +187,7 @@ class Migration(migrations.Migration):
                 ),
             ],
             database_operations=[
-                migrations.RunPython(apply_profile_schema, noop_reverse),
+                RunPythonToState(apply_profile_schema, noop_reverse),
             ],
         ),
     ]
