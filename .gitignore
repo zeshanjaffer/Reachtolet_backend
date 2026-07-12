@@ -4,6 +4,8 @@ __pycache__/
 .env
 firebase-service-account.json
 *firebase-adminsdk*.json
+google-services.json
+GoogleService-Info.plist
 db.sqlite3
 logs/
 media/

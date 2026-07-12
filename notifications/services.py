@@ -21,11 +21,24 @@ class PushNotificationService:
             if not firebase_admin._apps:
                 # You'll need to add your Firebase service account key to settings
                 # FIREBASE_CREDENTIALS_PATH = 'path/to/your/serviceAccountKey.json'
-                if hasattr(settings, 'FIREBASE_CREDENTIALS_PATH'):
-                    cred = credentials.Certificate(settings.FIREBASE_CREDENTIALS_PATH)
-                    firebase_admin.initialize_app(cred)
-                else:
-                    logger.warning("FIREBASE_CREDENTIALS_PATH not set in settings. Push notifications will not work.")
+                path = getattr(settings, 'FIREBASE_CREDENTIALS_PATH', None)
+                if not path:
+                    logger.warning(
+                        "FIREBASE_CREDENTIALS_PATH not set. Push notifications will not work."
+                    )
+                    return
+                path_str = str(path)
+                from pathlib import Path
+                if not Path(path_str).is_file():
+                    logger.warning(
+                        "Firebase credentials file missing at %s. "
+                        "Place the Firebase Admin SDK service-account JSON there "
+                        "(not google-services.json). Push notifications disabled until then.",
+                        path_str,
+                    )
+                    return
+                cred = credentials.Certificate(path_str)
+                firebase_admin.initialize_app(cred)
         except Exception as e:
             logger.error(f"Failed to initialize Firebase: {str(e)}")
     
