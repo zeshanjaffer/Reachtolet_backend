@@ -132,6 +132,7 @@ class Command(BaseCommand):
                     'validation': defn['validation'],
                     'order': defn['order'],
                     'help_text': defn['help_text'],
+                    'placeholder': defn.get('placeholder', ''),
                     'is_active': True,
                 },
             )

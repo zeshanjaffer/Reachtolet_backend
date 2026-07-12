@@ -84,6 +84,8 @@ class OohMediaTypeAttribute(models.Model):
     validation = models.JSONField(null=True, blank=True)
     order = models.PositiveIntegerField(default=0)
     help_text = models.CharField(max_length=255, blank=True, default='')
+    # Present on older EC2 schemas as NOT NULL; keep for compatibility.
+    placeholder = models.CharField(max_length=255, blank=True, default='')
     is_active = models.BooleanField(default=True)
 
     class Meta:
