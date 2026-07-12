@@ -26,27 +26,32 @@ NOTIFICATION_TYPE_CHOICES = [
 
 
 def apply_inbox_schema(apps, schema_editor):
-    pref_table = 'notifications_notificationpreference'
-    if not column_exists(schema_editor, pref_table, 'chat_messages_enabled'):
-        with schema_editor.connection.cursor() as cursor:
-            if schema_editor.connection.vendor == 'postgresql':
-                cursor.execute(
-                    f'ALTER TABLE {pref_table} '
-                    f'ADD COLUMN chat_messages_enabled boolean DEFAULT true NOT NULL'
-                )
-            else:
-                cursor.execute(
-                    f'ALTER TABLE {pref_table} '
-                    f'ADD COLUMN chat_messages_enabled bool NOT NULL DEFAULT 1'
-                )
+    # Custom db_table from notifications.0001_initial (not the Django default name).
+    pref_table = 'notifications_notification_preference'
+    if table_exists(schema_editor, pref_table):
+        if not column_exists(schema_editor, pref_table, 'chat_messages_enabled'):
+            with schema_editor.connection.cursor() as cursor:
+                if schema_editor.connection.vendor == 'postgresql':
+                    cursor.execute(
+                        f'ALTER TABLE {pref_table} '
+                        f'ADD COLUMN chat_messages_enabled boolean DEFAULT true NOT NULL'
+                    )
+                else:
+                    cursor.execute(
+                        f'ALTER TABLE {pref_table} '
+                        f'ADD COLUMN chat_messages_enabled bool NOT NULL DEFAULT 1'
+                    )
+    # If preference table is missing, skip column add — earlier notifications
+    # migrations / schema must be repaired separately; inbox table can still be created.
 
     inbox_table = 'notifications_usernotification'
     if not table_exists(schema_editor, inbox_table):
         UserNotification = apps.get_model('notifications', 'UserNotification')
         schema_editor.create_model(UserNotification)
+
+    if not table_exists(schema_editor, inbox_table):
         return
 
-    # Table exists: ensure indexes from this migration are present.
     for index_name, columns_sql in (
         ('notificatio_recipie_inbox_r_idx', '(recipient_id, is_read)'),
         ('notificatio_recipie_inbox_c_idx', '(recipient_id, created_at)'),

@@ -134,7 +134,14 @@ DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
 AUTH_USER_MODEL = 'users.User'
 
 # Firebase Cloud Messaging Configuration
-FIREBASE_CREDENTIALS_PATH = BASE_DIR / 'firebase-service-account.json'
+# Prefer firebase-service-account.json; also accept the Console download name.
+_firebase_default = BASE_DIR / 'firebase-service-account.json'
+_firebase_adminsdk = next(BASE_DIR.glob('*firebase-adminsdk*.json'), None)
+FIREBASE_CREDENTIALS_PATH = (
+    _firebase_default
+    if _firebase_default.is_file()
+    else (_firebase_adminsdk if _firebase_adminsdk is not None else _firebase_default)
+)
 
 # Push Notification Settings
 PUSH_NOTIFICATION_SETTINGS = {
