@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re
 from datetime import timedelta
 from decimal import Decimal, InvalidOperation
 
@@ -15,6 +16,9 @@ from billboards.models import Billboard
 from .models import Booking, BookingContent, Payment
 
 PENDING_EXPIRY_HOURS = 48
+# DecimalField(max_digits=12, decimal_places=2) → abs value < 10^10
+_MAX_PRICE = Decimal('9999999999.99')
+_PRICE_TOKEN_RE = re.compile(r'\d+(?:\.\d+)?')
 
 
 class BookingError(Exception):
@@ -54,16 +58,22 @@ def content_capabilities(billboard: Billboard) -> dict:
 
 
 def _parse_price(billboard: Billboard):
+    """Extract a storeable price from free-text price_range (e.g. '300000-50000')."""
     raw = (billboard.price_range or '').strip()
     if not raw:
         return None
-    cleaned = ''.join(ch for ch in raw if ch.isdigit() or ch == '.')
-    if not cleaned:
+    # Don't concatenate range ends ('300000-50000' → 30000050000 overflow).
+    # Use the first numeric token as the booking quote.
+    tokens = _PRICE_TOKEN_RE.findall(raw.replace(',', ''))
+    if not tokens:
         return None
     try:
-        return Decimal(cleaned)
+        value = Decimal(tokens[0])
     except (InvalidOperation, ValueError):
         return None
+    if value > _MAX_PRICE:
+        return None
+    return value
 
 
 def ranges_overlap(start_a, end_a, start_b, end_b) -> bool:
@@ -134,8 +144,10 @@ def create_booking_request(advertiser, billboard_id, start_date, end_date, messa
     if start_date < today:
         raise BookingError('start_date cannot be in the past.', 400)
 
+    # of=('self',): Postgres forbids FOR UPDATE on nullable outer joins
+    # (user / media_type are null=True → LEFT OUTER JOIN via select_related).
     billboard = (
-        Billboard.objects.select_for_update()
+        Billboard.objects.select_for_update(of=('self',))
         .select_related('user', 'media_type')
         .filter(pk=billboard_id)
         .first()
@@ -180,7 +192,7 @@ def create_booking_request(advertiser, billboard_id, start_date, end_date, messa
 @transaction.atomic
 def accept_booking(owner, booking_id, owner_note=''):
     booking = (
-        Booking.objects.select_for_update()
+        Booking.objects.select_for_update(of=('self',))
         .select_related('billboard', 'billboard__media_type', 'advertiser', 'media_owner')
         .filter(pk=booking_id)
         .first()
@@ -264,7 +276,7 @@ def cancel_booking(user, booking_id):
 @transaction.atomic
 def submit_content(advertiser, booking_id, *, data, media_file=None):
     booking = (
-        Booking.objects.select_for_update()
+        Booking.objects.select_for_update(of=('self',))
         .select_related('content')
         .filter(pk=booking_id)
         .first()
@@ -323,7 +335,7 @@ def submit_content(advertiser, booking_id, *, data, media_file=None):
 @transaction.atomic
 def approve_content(owner, booking_id, *, install_confirmed=False):
     booking = (
-        Booking.objects.select_for_update()
+        Booking.objects.select_for_update(of=('self',))
         .select_related('content')
         .filter(pk=booking_id)
         .first()
@@ -359,7 +371,7 @@ def approve_content(owner, booking_id, *, install_confirmed=False):
 @transaction.atomic
 def reject_content(owner, booking_id, feedback=''):
     booking = (
-        Booking.objects.select_for_update()
+        Booking.objects.select_for_update(of=('self',))
         .select_related('content')
         .filter(pk=booking_id)
         .first()
@@ -405,26 +417,42 @@ def maybe_advance_live_and_completed():
 
 
 def _notify(user, ntype, title, body, booking):
-    try:
-        from notifications.inbox_service import create_inbox_notification
+    """Queue inbox/push after commit so a notify failure cannot roll back the booking."""
+    user_id = getattr(user, 'id', None)
+    booking_id = booking.id
+    billboard_id = booking.billboard_id
+    status_value = booking.status
+    start_date = booking.start_date.isoformat()
+    end_date = booking.end_date.isoformat()
+    type_value = ntype
 
-        create_inbox_notification(
-            user=user,
-            notification_type=ntype,
-            title=title,
-            body=body,
-            data={
-                'booking_id': booking.id,
-                'billboard_id': booking.billboard_id,
-                'status': booking.status,
-                'start_date': booking.start_date.isoformat(),
-                'end_date': booking.end_date.isoformat(),
-            },
-            related_object_type='booking',
-            related_object_id=booking.id,
-        )
-    except Exception:
-        pass
+    def _send():
+        try:
+            from django.contrib.auth import get_user_model
+            from notifications.inbox_service import create_inbox_notification
+
+            recipient = get_user_model().objects.filter(pk=user_id).first()
+            if recipient is None:
+                return
+            create_inbox_notification(
+                user=recipient,
+                notification_type=type_value,
+                title=title,
+                body=body,
+                data={
+                    'booking_id': booking_id,
+                    'billboard_id': billboard_id,
+                    'status': status_value,
+                    'start_date': start_date,
+                    'end_date': end_date,
+                },
+                related_object_type='booking',
+                related_object_id=booking_id,
+            )
+        except Exception:
+            pass
+
+    transaction.on_commit(_send)
 
 
 def _notify_owner_new_request(booking):

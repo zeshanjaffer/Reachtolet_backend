@@ -50,6 +50,7 @@ class UserNotification(models.Model):
     created_at = models.DateTimeField(auto_now_add=True, db_index=True)
 
     class Meta:
+        db_table = 'notifications_user_notification'
         ordering = ['-created_at']
         indexes = [
             models.Index(fields=['recipient', 'is_read']),

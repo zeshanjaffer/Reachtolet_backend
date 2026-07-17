@@ -22,4 +22,8 @@ sio = socketio.AsyncServer(
 socket_handlers_module.sio = sio
 register_socket_handlers(sio)
 
-application = socketio.ASGIApp(sio, django_asgi_app)
+application = socketio.ASGIApp(
+    sio,
+    django_asgi_app,
+    socketio_path='socket.io',
+)
